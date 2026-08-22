@@ -1,0 +1,215 @@
+Magic 271485
+Revision Verdi3_L-2016.06-1
+
+; Window Layout <x> <y> <width> <height> <signalwidth> <valuewidth>
+viewPort 0 28 800 428 163 120
+
+; File list:
+; openDirFile [-d delimiter] [-s time_offset] [-rf auto_bus_rule_file] path_name file_name
+openDirFile -d / "" "/home/xiaotu/Desktop/rv64dec/vsim/top_tb.fsdb"
+
+; file time scale:
+; fileTimeScale ### s|ms|us|ns|ps
+
+; signal spacing:
+signalSpacing 5
+
+; windowTimeUnit is used for zoom, cursor & marker
+; waveform viewport range
+zoom 71230.698724 71434.795177
+cursor 71365.000000
+marker 0.000000
+
+; user define markers
+; userMarker time_pos marker_name color linestyle
+; visible top row signal index
+top 0
+; marker line index
+markerPos 44
+
+; event list
+; addEvent event_name event_expression
+; curEvent event_name
+
+
+
+COMPLEX_EVENT_BEGIN
+
+
+COMPLEX_EVENT_END
+
+
+
+; toolbar current search type
+; curSTATUS search_type
+curSTATUS ByChange
+
+
+addGroup "G1"
+activeDirFile "" "/home/xiaotu/Desktop/rv64dec/vsim/top_tb.fsdb"
+addSignal -h 15 /top_tb/clk
+addSignal -h 15 -holdScope reset
+addSignal -h 15 /top_tb/dut/rv64im/ifu/BRU_complete
+addGroup "G2"
+addGroup "G4"
+addSignal -h 15 -UNSIGNED -HEX /top_tb/dut/rv64im/ifu/bru_pc[63:0]
+addSignal -h 15 -UNSIGNED -HEX /top_tb/dut/memsys/d_cache_inst/DT_PA[31:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope Data_ld[63:0]
+addSignal -h 15 -holdScope Ld_en
+addSignal -h 15 -holdScope hit
+addSignal -h 15 -UNSIGNED -HEX /top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_store_buffer/rob_id_wb[6:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope rs2_value_wb[63:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope vA_wb[63:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope head_pointer[5:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope tail_pointer[5:0]
+addSignal -h 15 -holdScope bru_recovery
+addSignal -h 15 -UNSIGNED -HEX -holdScope bru_rob_id[6:0]
+addSignal -h 15 -holdScope retire
+addSignal -h 15 -UNSIGNED -HEX -holdScope retire_en[1:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope counter_comb[5:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope retire_addr[63:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope retire_data[63:0]
+addSignal -h 15 -holdScope cache_write_complete
+addSignal -h 15 -UNSIGNED -HEX /top_tb/dut/memsys/d_cache_inst/St_data[63:0]
+addSignal -h 15 -UNSIGNED -HEX /top_tb/dut/rv64im/u_top_ex/u_top_bru/u_iq2/rob_id1[6:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope rob_id2[6:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope rob_id_select[6:0]
+addSignal -h 15 -UNSIGNED -HEX /top_tb/dut/rv64im/ifu/if_instr0[31:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope if_instr1[31:0]
+addSignal -h 15 -UNSIGNED -HEX /top_tb/dut/rv64im/ifu/if_pc_ctrl_inst/next_pc[63:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope pc_q[63:0]
+addSignal -h 15 -UNSIGNED -HEX /top_tb/dut/rv64im/u_top_ex/u_top_bru/u_wb_complete/bru_rob_id_end[6:0]
+addSignal -h 15 -UNSIGNED -HEX /top_tb/dut/rv64im/rename/rob_inst/tail_ptr[6:0]
+addSignal -h 15 /top_tb/dut/rv64im/rename/dispatch_inst/dispatch_stall_o
+addSignal -h 15 /top_tb/dut/rv64im/u_top_ex/u_alu_top/u_iq1/iq1_full
+addSignal -h 15 /top_tb/dut/rv64im/u_top_ex/u_top_bru/u_iq2/iq2_full
+addSignal -h 15 /top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_iq4/iq4_full
+addGroup "G3"
+addSignal -h 15 -UNSIGNED -HEX /top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_iq4/rob_id1[6:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope rob_id2[6:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope rob_id_select[6:0]
+addSignal -h 15 -UNSIGNED -HEX /top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_load_unit/current_state[2:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope lsu_value_wb_out[63:0]
+addSignal -h 15 -UNSIGNED -HEX -holdScope load_rob_id_end[6:0]
+addGroup "G5"
+
+; getSignalForm Scope Hierarchy Status
+; active file of getSignalForm
+activeDirFile "" "/home/xiaotu/Desktop/rv64dec/vsim/top_tb.fsdb"
+
+GETSIGNALFORM_SCOPE_HIERARCHY_BEGIN
+getSignalForm close
+
+"/top_tb"
+"/top_tb/dut"
+"/top_tb/dut/memsys"
+"/top_tb/dut/memsys/d_cache_inst"
+"/top_tb/dut/memsys/i_cache_inst"
+"/top_tb/dut/rv64im"
+"/top_tb/dut/rv64im/ifu"
+"/top_tb/dut/rv64im/ifu/if_pc_ctrl_inst"
+"/top_tb/dut/rv64im/ifu/pre_decode_inst"
+"/top_tb/dut/rv64im/ifu/u_btb"
+"/top_tb/dut/rv64im/ifu/u_instr_buffer"
+"/top_tb/dut/rv64im/lsu1_iq_reg"
+"/top_tb/dut/rv64im/rename"
+"/top_tb/dut/rv64im/rename/dispatch_inst"
+"/top_tb/dut/rv64im/rename/free_list_inst"
+"/top_tb/dut/rv64im/rename/rob_inst"
+"/top_tb/dut/rv64im/rename/srat_inst"
+"/top_tb/dut/rv64im/u_top_ex"
+"/top_tb/dut/rv64im/u_top_ex/u_PRF"
+"/top_tb/dut/rv64im/u_top_ex/u_alu_top"
+"/top_tb/dut/rv64im/u_top_ex/u_alu_top/u_alu"
+"/top_tb/dut/rv64im/u_top_ex/u_alu_top/u_exwb"
+"/top_tb/dut/rv64im/u_top_ex/u_alu_top/u_iq1"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru/u_bru_ex"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru/u_bypass"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru/u_iq2"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru/u_wb_complete"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/sw"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_agu"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_bypass"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_ex_wb"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_iq4"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_load_unit"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_prf_ex"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_select_prf_lw"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_store_buffer"
+
+SCOPE_LIST_BEGIN
+"/top_tb"
+"/top_tb/dut"
+"/top_tb/dut/rv64im"
+"/top_tb/dut/rv64im/if_id_reg"
+"/top_tb/dut/rv64im/ifu"
+"/top_tb/dut/rv64im/ifu/if_pc_ctrl_inst"
+"/top_tb/dut/rv64im/ifu/pre_decode_inst"
+"/top_tb/dut/rv64im/ifu/u_instr_buffer"
+"/top_tb/dut/rv64im/ifu/u_tournament_predictor"
+"/top_tb/dut/rv64im/ifu/u_btb"
+"/top_tb/dut/rv64im/ifu/u_bob"
+"/top_tb/dut/rv64im/u_top_ex"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru/u_iq2"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru/u_wb_complete"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru/u_bru_ex"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_iq4"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_load_unit"
+"/top_tb/dut/rv64im/rename"
+"/top_tb/dut/rv64im/rename/rob_inst"
+"/top_tb/dut/rv64im/rename/dispatch_inst"
+"/top_tb/dut/rv64im/rename/decode_inst"
+"/top_tb/dut/rv64im/rename/srat_inst"
+"/top_tb/dut/rv64im/u_top_ex/u_PRF"
+"/top_tb/dut/rv64im/u_top_ex/u_alu_top"
+"/top_tb/dut/rv64im/u_top_ex/u_alu_top/u_iq1"
+"/top_tb/dut/rv64im/alu2_iq_reg"
+"/top_tb/dut/rv64im/u_top_ex/u_PRF/Unnamed_$prf_sv_95"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru/u_ex_wb"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_prf_ex"
+"/top_tb/dut/memsys"
+"/top_tb/dut/memsys/d_cache_inst"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_iq4/Unnamed_$iq4_sv_433"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_ex_wb"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_store_buffer"
+"/top_tb/dut/rv64im/rename/rob_inst/Unnamed_$ROB_sv_154"
+"/top_tb/dut/rv64im/rename/rob_inst/Unnamed_$ROB_sv_306"
+"/top_tb/dut/rv64im/rename/rob_inst/Unnamed_$ROB_sv_351"
+"/top_tb/dut/rv64im/rename/rob_inst/Unnamed_$ROB_sv_466"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_select_prf_lw"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_store_buffer/Unnamed_$storebuffer_sv_120"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_store_buffer/Unnamed_$storebuffer_sv_183"
+"/top_tb/dut/rv64im/mdu2_iq_reg"
+"/top_tb/dut/rv64im/u_top_ex/u_alu_top/u_prf_ex"
+"/top_tb/dut/rv64im/u_top_ex/u_alu_top/u_alu"
+"/top_tb/dut/rv64im/u_top_ex/u_alu_top/u_exwb"
+"/top_tb/dut/rv64im/rename/free_list_inst"
+"/top_tb/dut/rv64im/bru1_iq_reg"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru/u_bru_ex/bru_inst"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru/u_bru_ex/correct_adr"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru/u_bru_ex/correct_direct"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru/u_select_prf"
+"/top_tb/dut/rv64im/lsu1_iq_reg"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/sw"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_agu"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru/u_bypass"
+"/top_tb/dut/rv64im/u_top_ex/u_top_bru/u_bru_ex/OP2"
+"/top_tb/dut/rv64im/u_top_ex/u_alu_top/u_select_prf"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_agu/SRC1"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_agu/SRC2"
+"/top_tb/dut/rv64im/u_top_ex/u_alu_top/u_exwb/bru_re"
+"/top_tb/dut/rv64im/u_top_ex/u_top_lsu/u_bypass"
+"/top_tb/dut/memsys/i_cache_inst"
+"/top_tb/dut/rv64im/ifu/u_instr_buffer/Unnamed_$instr_buffer_sv_191"
+"/top_tb/dut/rv64im/u_top_ex/u_alu_top/u_bypass"
+"/top_tb/dut/rv64im/rename/rr_dispatch_reg"
+"/top_tb/dut/rv64im/rename/srat_inst/Unnamed_$SRAT_sv_223"
+SCOPE_LIST_END
+
+GETSIGNALFORM_SCOPE_HIERARCHY_END
+
+

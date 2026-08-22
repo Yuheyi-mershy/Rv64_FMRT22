@@ -1,0 +1,45 @@
+module ex_wb(
+    input logic clk,
+    input logic reset,
+    
+    input logic [63:0] adr_value_ex,     
+    input logic [63:0] rs2_value_ex,
+    input logic [3:0] lsu_control_ex,
+    input logic [6:0] rob_id_ex,
+    input logic complete_ex,
+    input logic instr_valid_ex,
+    input logic bru_recovery,
+    input logic sb_full,
+    input logic [3:0] grant_ex,
+
+    output logic [63:0] adr_value_wb,    
+    output logic [63:0] rs2_value_wb,
+    output logic [3:0] lsu_control_wb,
+    output logic [6:0] rob_id_wb,
+    output logic complete_wb,
+    output logic instr_valid_wb,
+    output logic [3:0] grant_wb
+);
+
+    always_ff @(posedge clk) begin
+        if(reset | sb_full | bru_recovery) begin
+            adr_value_wb <= 64'd0;        
+            rs2_value_wb <= 64'd0;
+            lsu_control_wb <= 4'd0;
+            rob_id_wb <= 7'd0;
+            complete_wb <= 1'd0;
+            instr_valid_wb <= 1'd0;
+            grant_wb <= 4'd0;
+        end
+        else begin
+            adr_value_wb <= adr_value_ex;
+            rs2_value_wb <= rs2_value_ex;
+            lsu_control_wb <= lsu_control_ex;
+            rob_id_wb <= rob_id_ex;
+            complete_wb <= complete_ex;
+            instr_valid_wb <= instr_valid_ex;
+            grant_wb <= grant_ex;
+        end
+    end
+    
+endmodule

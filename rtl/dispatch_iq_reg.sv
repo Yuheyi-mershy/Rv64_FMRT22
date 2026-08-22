@@ -1,0 +1,127 @@
+/******************************************************************************
+ * Filename: dispatch_iq_reg.sv
+ * Author: FMRT22-HYC
+ * Create date: 2026.04.20
+ * Description: 
+ ***************************************************************************/
+
+module dispatch_iq_reg(
+    // 时钟复位
+    input  logic                 clk,
+    input  logic                 reset,
+    
+    // 流水线控制信号
+    input  logic                 flush,      // 高电平冲刷：valid 置0
+    input  logic                 stall,      // 高电平暂停：寄存器保持不变
+    
+    // ==================== 上游输入端口（valid-ready）====================
+    input  logic [3:0]           ctrl_signal_d,
+    input  logic [1:0]           inst_type_d,
+    input  logic [3:0]           fu_select_d,
+    input  logic                 inst_valid_d,
+    input  logic                 rs1_valid_d,
+    input  logic                 rs2_valid_d,
+    input  logic                 rd_valid_d,
+    input  logic [63:0]          immediate_d,
+    input  logic [5:0]           rs1_phys_d,
+    input  logic [5:0]           rs2_phys_d,
+    input  logic [5:0]           rd_phys_d,
+    input  logic [6:0]           rob_id_d,
+    input  logic [4:0]           BOB_id_d,
+
+
+    output logic                 ready_o,    // 向上游反馈：本级可以接收数据
+    
+    // ==================== 下游输出端口（valid-ready）====================
+    output logic [3:0]           ctrl_signal_q,
+    output logic [1:0]           inst_type_q,
+    output logic [3:0]           fu_select_q,
+    output logic                 inst_valid_q,
+    output logic                 rs1_valid_q,
+    output logic                 rs2_valid_q,
+    output logic                 rd_valid_q,
+    output logic [63:0]          immediate_q,
+    output logic [5:0]           rs1_phys_q,
+    output logic [5:0]           rs2_phys_q,
+    output logic [5:0]           rd_phys_q,
+    output logic [6:0]           rob_id_q,
+    output logic [4:0]           BOB_id_q,
+
+    input  logic                 ready_i,     // 来自下游：下游可以接收数据
+    input  logic       write_ok
+);
+
+// ==================== 核心握手逻辑 ====================
+// 本级寄存器可以接收新数据的条件：未暂停 + 下游可以接收
+assign ready_o = ~stall & ready_i;
+
+// ==================== 时序逻辑：寄存器打拍 ====================
+always_ff @(posedge clk) begin
+    if (reset) begin
+            ctrl_signal_q <= 'b0;
+            inst_type_q <= 'b0;
+            fu_select_q <= 'b0;
+            inst_valid_q <= 'b0;
+            rs1_valid_q <= 'b0;
+            rs2_valid_q <= 'b0;
+            rd_valid_q <= 'b0;
+            immediate_q <= 'b0;
+            rs1_phys_q <= 'b0;
+            rs2_phys_q <= 'b0;
+            rd_phys_q <= 'b0;
+            rob_id_q <= 'b0;
+            BOB_id_q <= 'b0;
+    end else begin
+        if (flush) begin
+            // 冲刷：所有指令置无效
+            ctrl_signal_q <= 'b0;
+            inst_type_q <= 'b0;
+            fu_select_q <= 'b0;
+            inst_valid_q <= 'b0;
+            rs1_valid_q <= 'b0;
+            rs2_valid_q <= 'b0;
+            rd_valid_q <= 'b0;
+            immediate_q <= 'b0;
+            rs1_phys_q <= 'b0;
+            rs2_phys_q <= 'b0;
+            rd_phys_q <= 'b0;
+            rob_id_q <= 'b0;
+            BOB_id_q <= 'b0;
+        end else if (~stall) begin
+            // 未暂停时：只有握手成功（本级ready=1）才更新数据
+            if (ready_o) begin
+                ctrl_signal_q <= ctrl_signal_d;
+                inst_type_q <= inst_type_d;
+                fu_select_q <= fu_select_d;
+                inst_valid_q <= inst_valid_d;
+                rs1_valid_q <= rs1_valid_d;
+                rs2_valid_q <= rs2_valid_d;
+                rd_valid_q <= rd_valid_d;
+                immediate_q <= immediate_d;
+                rs1_phys_q <= rs1_phys_d;
+                rs2_phys_q <= rs2_phys_d;
+                rd_phys_q <= rd_phys_d;
+                rob_id_q <= rob_id_d;
+                BOB_id_q <= BOB_id_d;
+            end
+            // 未握手成功：保持原有输出不变
+        end  else if (write_ok) begin
+		ctrl_signal_q <= ctrl_signal_q;
+                inst_type_q <= inst_type_q;
+                fu_select_q <= fu_select_q; 
+                inst_valid_q <= 1'b0;
+                rs1_valid_q <= rs1_valid_q;
+                rs2_valid_q <= rs2_valid_q;
+                rd_valid_q <= rd_valid_q;
+                immediate_q <= immediate_q;
+                rs1_phys_q <= rs1_phys_q;
+                rs2_phys_q <= rs2_phys_q;
+                rd_phys_q <= rd_phys_q;
+                rob_id_q <= rob_id_q;
+                BOB_id_q <= BOB_id_q;
+	    end
+        // stall=1 时完全保持所有输出不变
+    end
+end
+
+endmodule

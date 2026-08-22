@@ -1,0 +1,127 @@
+module  ex_wb_bru(
+   input logic  clk,
+   input logic  reset,
+
+    //来源于槽
+    input logic [6:0]rob_id_ex,
+    input logic [4:0]bob_id_ex,
+    input logic instr_valid_ex,
+    input logic [5:0]rd_number_ex,
+    input logic [7:0]GHR_value_ex,
+    input logic [7:0]CPHT_GPHT_index_ex,
+    input logic [7:0]BPHT_index_ex,
+    input logic is_return_ex,
+    input logic [63:0]pc_ex,
+    input logic [4:0]RAS_count_ex,
+    input logic bru_recovery_wb_in,
+
+    //来自于执行部件
+    input logic complete_ex,
+    input logic [63:0]true_adr_ex,  
+    input logic bru_recovery_ex,
+    input logic btb_wirte_ex,
+    input logic [63:0]rd_value_ex,
+    input logic [1:0] G_or_B_ex,
+    input logic is_btype,
+    input logic taken_ex,
+    input logic reg_write_ex,
+
+    //来自于外界表明都恢复完了
+    input logic  resolve_complete,    
+   
+    //输出信号
+    output logic [6:0]rob_id_wb,
+    output logic [4:0]bob_id_wb,
+    output logic instr_valid_wb,
+    output logic [5:0]rd_number_wb,
+    output logic [7:0]GHR_value_wb,
+    output logic [7:0]CPHT_GPHT_index_wb,
+    output logic [7:0]BPHT_index_wb,
+    output logic is_return_wb,
+    output logic [63:0]pc_wb,
+    output logic [4:0]RAS_count_wb,
+    output logic complete_wb,
+    output logic [63:0]true_adr_wb,  
+    output logic bru_recovery_wb,
+    output logic btb_wirte_wb,
+    output logic [63:0]rd_value_wb,
+    output logic [1:0] G_or_B_wb,
+    output logic is_btype_wb,
+    output logic taken_wb,
+    output logic reg_write_wb
+
+);
+
+    //流水线寄存器：EX -> WB
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            // 复位时清零
+            rob_id_wb<=7'd0;
+            bob_id_wb<=5'd0;
+            instr_valid_wb<=1'd0;
+            rd_number_wb<=6'd0;
+            GHR_value_wb<=8'd0;
+            CPHT_GPHT_index_wb<=8'd0;
+            BPHT_index_wb<=8'd0;
+            is_return_wb<=1'd0;
+            pc_wb<=64'd0;
+            RAS_count_wb<=5'd0;
+            complete_wb<=1'd0;
+            true_adr_wb<=64'd0;  
+            bru_recovery_wb<=1'd0;
+            btb_wirte_wb<=1'd0;
+            rd_value_wb<=64'd0;
+            G_or_B_wb<=2'd0;
+            is_btype_wb<=1'd0;
+            taken_wb<=1'd0;
+            reg_write_wb<=1'd0;
+        end   
+        else  if(~bru_recovery_wb_in)  begin
+            rob_id_wb<=rob_id_ex;
+            bob_id_wb<=bob_id_ex;
+            instr_valid_wb<=instr_valid_ex;
+            rd_number_wb<=rd_number_ex;
+            GHR_value_wb<=GHR_value_ex;
+            CPHT_GPHT_index_wb<=CPHT_GPHT_index_ex;
+            BPHT_index_wb<=BPHT_index_ex;
+            is_return_wb<=is_return_ex;
+            pc_wb<=pc_ex;
+            RAS_count_wb<=RAS_count_ex;
+            complete_wb<=complete_ex;
+            true_adr_wb<=true_adr_ex;  
+            bru_recovery_wb<=bru_recovery_ex;
+            btb_wirte_wb<=btb_wirte_ex;
+            rd_value_wb<=rd_value_ex;
+            G_or_B_wb<=G_or_B_ex;
+            is_btype_wb<=is_btype;
+            taken_wb<=taken_ex;
+            reg_write_wb<=reg_write_wb;
+        end  
+        else   begin
+            rob_id_wb<=rob_id_wb;
+            bob_id_wb<=bob_id_wb;
+            instr_valid_wb<=instr_valid_wb;
+            rd_number_wb<=rd_number_wb;
+            GHR_value_wb<=GHR_value_wb;
+            CPHT_GPHT_index_wb<=CPHT_GPHT_index_wb;
+            BPHT_index_wb<=BPHT_index_wb;
+            is_return_wb<=is_return_wb;
+            pc_wb<=pc_wb;
+            RAS_count_wb<=RAS_count_wb;
+            complete_wb<=complete_wb;
+            true_adr_wb<=true_adr_wb;  
+            btb_wirte_wb<=btb_wirte_wb;
+            rd_value_wb<=rd_value_wb;
+            G_or_B_wb<=G_or_B_wb;
+            is_btype_wb<=is_btype_wb;
+            taken_wb<=taken_wb;
+            reg_write_wb<=reg_write_wb;
+            if(resolve_complete)  begin
+               bru_recovery_wb  <= 1'b0;
+            end  
+            else   begin
+               bru_recovery_wb  <= bru_recovery_wb;
+            end
+        end       
+    end          
+endmodule

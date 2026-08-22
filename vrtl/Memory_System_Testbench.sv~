@@ -1,0 +1,1275 @@
+module Memory_System_Testbench;
+    // 时钟和复位
+    logic clk;
+    logic reset;
+    
+    // 处理器接口 - 指令侧
+    logic [38:0] I_VA;
+    logic IT_req_in;
+    logic IC_dataout_rdy;
+    logic I_hit;
+    logic [127:0] I_data_out;
+    logic [11:0] Br_type_out;
+    logic IC_dataout_val;
+    
+    // 处理器接口 - 数据侧
+    logic [38:0] D_VA;
+    logic [63:0] St_data;
+    logic [1:0] St_type;
+    logic Ld_en;
+    logic St_en;
+    logic DC_dataout_rdy;
+    logic D_hit;
+    logic [63:0] D_data_out;
+    logic DC_dataout_val;
+    
+    // 外部控制信号
+    logic pause_signal;
+    
+    // 内部状态监控信号
+    logic [31:0] IT_PA_monitor;
+    logic IT_hit_monitor;
+    logic IT_req_monitor;
+    logic [38:0] IT_miss_va_monitor;
+    logic IC_req_monitor;
+    logic [31:0] IC_addr_monitor;
+    logic DT_req_monitor;
+    logic DC_req_monitor;
+    logic DC_dirty_monitor;
+    logic [31:0] DC_addr_monitor;
+    logic [127:0] DC_dirty_data_monitor;
+    logic mem_write_en_monitor;
+    logic [31:0] mem_read_addr_monitor;
+    logic [31:0] mem_write_addr_monitor;
+    logic [127:0] mem_write_data_monitor;
+    logic mem_data_valid_monitor;
+    
+    // TLB和Cache完成信号监控
+    logic IT_access_done_monitor;
+    logic DT_access_done_monitor;
+    logic IC_done_monitor;
+    logic DC_done_monitor;
+    
+    // 访问计数器监控
+    logic [1:0] IT_access_counter_monitor;
+    logic [1:0] DT_access_counter_monitor;
+    logic IT_access_active_monitor;
+    logic DT_access_active_monitor;
+    
+    // 测试控制信号
+    logic test_start;
+    logic [31:0] test_cycle_count;
+    
+    // 错误计数器
+    integer error_count = 0;
+    
+    // 实例化待测试模块
+    Memory_System uut (
+        .clk(clk),
+        .reset(reset),
+        
+        // 处理器接口 - 指令侧
+        .I_VA(I_VA),
+        .IT_req_in(IT_req_in),
+        .IC_dataout_rdy(IC_dataout_rdy),
+        .I_hit(I_hit),
+        .I_data_out(I_data_out),
+        .Br_type_out(Br_type_out),
+        .IC_dataout_val(IC_dataout_val),
+        
+        // 处理器接口 - 数据侧
+        .D_VA(D_VA),
+        .St_data(St_data),
+        .St_type(St_type),
+        .Ld_en(Ld_en),
+        .St_en(St_en),
+        .DC_dataout_rdy(DC_dataout_rdy),
+        .D_hit(D_hit),
+        .D_data_out(D_data_out),
+        .DC_dataout_val(DC_dataout_val),
+        
+        // 外部控制信号
+        .pause_signal(pause_signal)
+    );
+    
+    // 连接内部状态监控信号
+    assign IT_PA_monitor = uut.IT_PA;
+    assign IT_hit_monitor = uut.IT_hit;
+    assign IT_req_monitor = uut.IT_req;
+    assign IT_miss_va_monitor = uut.IT_miss_va;
+    assign IC_req_monitor = uut.IC_req;
+    assign IC_addr_monitor = uut.IC_addr;
+    assign DC_req_monitor = uut.DC_req;
+    assign DT_req_monitor = uut.DT_req;
+    assign DC_dirty_monitor = uut.DC_dirty;
+    assign DC_addr_monitor = uut.DC_addr;
+    assign DC_dirty_data_monitor = uut.DC_dirty_data;
+    assign mem_write_en_monitor = uut.mem_write_en;
+    assign mem_read_addr_monitor = uut.mem_read_addr;
+    assign mem_write_addr_monitor = uut.mem_write_addr;
+    assign mem_write_data_monitor = uut.mem_write_data;
+    assign mem_data_valid_monitor = uut.mem_data_valid;
+    
+    // 连接新增的完成信号
+    assign IT_access_done_monitor = uut.IT_access_done;
+    assign DT_access_done_monitor = uut.DT_access_done;
+    assign IC_done_monitor = uut.IC_done;
+    assign DC_done_monitor = uut.DC_done;
+    
+    // 连接访问计数器信号
+    assign IT_access_counter_monitor = uut.IT_access_counter;
+    assign DT_access_counter_monitor = uut.DT_access_counter;
+    assign IT_access_active_monitor = uut.IT_access_active;
+    assign DT_access_active_monitor = uut.DT_access_active;
+    
+    // 时钟生成
+    initial begin
+        clk = 0;
+        forever #10 clk = ~clk;
+    end
+    
+    // 任务：通过force初始化主存
+    task force_initialize_memory;
+        integer i;  // 在任务内部声明变量
+        begin
+            $display("[%0t] === 通过force初始化Memory_System主存 ===", $time);
+            
+            // 等待时钟稳定
+            #10;
+            
+            // 使用force命令初始化主存
+            // 初始化指令区域
+            force uut.main_mem_inst.mem_array[256] = generate_test_instructions(0);
+            force uut.main_mem_inst.mem_array[257] = generate_test_instructions(1);
+            force uut.main_mem_inst.mem_array[258] = generate_test_instructions(2);
+            force uut.main_mem_inst.mem_array[259] = generate_test_instructions(3);
+            force uut.main_mem_inst.mem_array[260] = 128'hDEADBEEF_CAFEBABE_12345678_90ABCDEF;
+            
+            // 初始化更多指令区域用于不同测试用例
+            force uut.main_mem_inst.mem_array[272] = generate_branch_instructions(0);
+            force uut.main_mem_inst.mem_array[273] = generate_branch_instructions(1);
+            force uut.main_mem_inst.mem_array[274] = generate_branch_instructions(2);
+            
+            $display("  指令区域初始化完成: 物理地址0x1000-0x1040 -> 数组索引256-260");
+            $display("  分支指令区域初始化: 物理地址0x1100-0x1120 -> 数组索引272-274");
+            
+            // 初始化数据区域
+            force uut.main_mem_inst.mem_array[512] = generate_test_data(0);
+            force uut.main_mem_inst.mem_array[513] = generate_test_data(1);
+            force uut.main_mem_inst.mem_array[514] = generate_test_data(2);
+            force uut.main_mem_inst.mem_array[515] = 128'h11111111_22222222_33333333_44444444;
+            
+            $display("  数据区域初始化完成: 物理地址0x2000-0x2030 -> 数组索引512-515");
+            
+            // 初始化页表区域（关键！）
+            force uut.main_mem_inst.mem_array[4096] = 128'h00001001_00002001_00003001_00008001;
+            force uut.main_mem_inst.mem_array[8192] = 128'h00010003_00020003_00030003_0000c003;
+            force uut.main_mem_inst.mem_array[8320] = 128'h00010003_00020003_00030003_0000c003;
+            force uut.main_mem_inst.mem_array[12288] = 128'h00001007_00002007_00003007_00000407;
+            
+            // 初始化额外的页表项用于不同地址映射
+            force uut.main_mem_inst.mem_array[4097] = 128'h00005001_00006001_00007001_00008001;
+            force uut.main_mem_inst.mem_array[8256] = 128'h00050003_00060003_00070003_00010003;
+            force uut.main_mem_inst.mem_array[16384] = 128'h00005007_00006007_00007007_00008007;
+	    force uut.main_mem_inst.mem_array[16385] = 128'h00005007_00006007_00007007_00008007;
+	    force uut.main_mem_inst.mem_array[16386] = 128'h00005007_00006007_00007007_00002007;
+            
+            $display("  页表区域初始化完成:");
+            $display("    物理地址0x10000 -> 数组索引4096-4097");
+            $display("    物理地址0x20000 -> 数组索引8192-8193");
+            $display("    物理地址0x30000 -> 数组索引12288-12289");
+            
+            // 手动初始化Cache替换测试用的数据区域
+            $display("  初始化Cache替换测试数据区域...");
+            
+            // 为addr1准备的数据 (物理地址0x2080 = 数组索引520)
+            force uut.main_mem_inst.mem_array[520] = {64'hAAAAAAAAAAAAAAAA, 64'hBBBBBBBBBBBBBBBB};
+            
+            // 为addr2准备的数据 (物理地址0x2100 = 数组索引528)
+            force uut.main_mem_inst.mem_array[528] = {64'hCCCCCCCCCCCCCCCC, 64'hDDDDDDDDDDDDDDDD};
+            
+            // 为addr3准备的数据 (物理地址0x2180 = 数组索引536)
+            force uut.main_mem_inst.mem_array[536] = {64'hEEEEEEEEEEEEEEEE, 64'hFFFFFFFFFFFFFFFF};
+            
+            $display("  Cache测试数据初始化完成:");
+            $display("    物理地址0x2080 -> 数组索引520 -> 数据: AAAAAAAA... BBBBBBBB...");
+            $display("    物理地址0x2100 -> 数组索引528 -> 数据: CCCCCCCC... DDDDDDDD...");
+            $display("    物理地址0x2180 -> 数组索引536 -> 数据: EEEEEEEE... FFFFFFFF...");
+            
+            $display("  ✓ 主存初始化完成");
+        end
+    endtask
+    
+    // 任务：释放force
+    task release_memory_forces;
+        integer i;  // 在任务内部声明变量
+        begin
+            $display("[%0t] 释放force命令...", $time);
+            
+            // 释放指令区域
+            release uut.main_mem_inst.mem_array[256];
+            release uut.main_mem_inst.mem_array[257];
+            release uut.main_mem_inst.mem_array[258];
+            release uut.main_mem_inst.mem_array[259];
+            release uut.main_mem_inst.mem_array[260];
+            release uut.main_mem_inst.mem_array[272];
+            release uut.main_mem_inst.mem_array[273];
+            release uut.main_mem_inst.mem_array[274];
+            
+            // 释放数据区域
+            release uut.main_mem_inst.mem_array[512];
+            release uut.main_mem_inst.mem_array[513];
+            release uut.main_mem_inst.mem_array[514];
+            release uut.main_mem_inst.mem_array[515];
+            
+            // 释放页表内容
+            release uut.main_mem_inst.mem_array[4096];
+            release uut.main_mem_inst.mem_array[4097];
+            release uut.main_mem_inst.mem_array[8192];
+            release uut.main_mem_inst.mem_array[8193];
+            release uut.main_mem_inst.mem_array[12288];
+            release uut.main_mem_inst.mem_array[12289];
+            
+            // 释放Cache测试数据
+            release uut.main_mem_inst.mem_array[520];
+            release uut.main_mem_inst.mem_array[528];
+            release uut.main_mem_inst.mem_array[536];
+            
+            $display("  ✓ Force命令已释放");
+        end
+    endtask
+    
+    // 任务：显示当前状态
+    task display_status;
+        input string desc;
+        $display("\n[%0t] === 测试步骤: %s ===", $time, desc);
+        $display("周期: %0d", test_cycle_count);
+        $display("指令侧: VA=%h, 命中=%b, 数据=%h, 分支类型=%b, IC_dataout_val=%b", 
+                I_VA, I_hit, I_data_out, Br_type_out, IC_dataout_val);
+        $display("I-TLB状态: PA=%h, 命中=%b, 请求=%b, 缺失地址=%h, 访问计数器=%b, 活跃=%b", 
+                IT_PA_monitor, IT_hit_monitor, IT_req_monitor, IT_miss_va_monitor, 
+                IT_access_counter_monitor, IT_access_active_monitor);
+        $display("I-Cache状态: 请求=%b, 地址=%h, 完成=%b", 
+                IC_req_monitor, IC_addr_monitor, IC_done_monitor);
+        $display("数据侧: VA=%h, Ld_en=%b, St_en=%b, 命中=%b, 数据=%h, DC_dataout_val=%b", 
+                D_VA, Ld_en, St_en, D_hit, D_data_out, DC_dataout_val);
+        $display("D-Cache状态: 请求=%b, 脏=%b, 地址=%h, 脏数据=%h, 完成=%b", 
+                DC_req_monitor, DC_dirty_monitor, DC_addr_monitor, DC_dirty_data_monitor, DC_done_monitor);
+        $display("主存访问: 读地址=%h, 写地址=%h, 写使能=%b, 写数据=%h, 数据有效=%b", 
+                mem_read_addr_monitor, mem_write_addr_monitor, mem_write_en_monitor, 
+                mem_write_data_monitor, mem_data_valid_monitor);
+        $display("TLB完成信号: IT_access_done=%b, DT_access_done=%b", 
+                IT_access_done_monitor, DT_access_done_monitor);
+    endtask
+    
+    // 任务：设置指令访问
+    task set_instruction_access;
+        input [38:0] va;
+        input logic req;
+        begin
+            I_VA = va;
+            IT_req_in = req;
+            IC_dataout_rdy = 1'b1;
+        end
+    endtask
+    
+    // 任务：设置数据访问（Load）
+    task set_data_load_access;
+        input [38:0] va;
+        begin
+            D_VA = va;
+            Ld_en = 1'b1;
+            St_en = 1'b0;
+            St_data = 64'b0;
+            St_type = 2'b00;
+            DC_dataout_rdy = 1'b1;
+        end
+    endtask
+    
+    // 任务：设置数据访问（Store）
+    task set_data_store_access;
+        input [38:0] va;
+        input [63:0] data;
+        input [1:0] store_type;
+        begin
+            D_VA = va;
+            Ld_en = 1'b0;
+            St_en = 1'b1;
+            St_data = data;
+            St_type = store_type;
+            DC_dataout_rdy = 1'b1;
+        end
+    endtask
+    
+    // 任务：重置数据访问
+    task reset_data_access;
+        begin
+            Ld_en = 1'b0;
+            St_en = 1'b0;
+            DC_dataout_rdy = 1'b0;
+        end
+    endtask
+    
+    // 任务：等待TLB请求
+    task wait_for_tlb_request;
+        input logic is_itlb;  // 1=ITLB, 0=DTLB
+        integer timeout;
+        begin
+            timeout = 0;
+            if (is_itlb) begin
+                while (!IT_req_monitor && timeout < 5) begin
+                    @(posedge clk);
+                    #1;
+                    timeout = timeout + 1;
+                end
+                if (timeout >= 5)
+                    $display("[%0t] 警告: 等待ITLB请求超时", $time);
+                else
+                    $display("[%0t] ITLB请求已检测到", $time);
+            end else begin
+                // 等待D-TLB请求 - 注意：D-TLB请求通过DC_req_monitor监控
+                while (!DT_req_monitor && timeout < 5) begin
+                    @(posedge clk);
+                    #1;
+                    timeout = timeout + 1;
+                end
+                if (timeout >= 5)
+                    $display("[%0t] 警告: 等待DTLB请求超时", $time);
+                else
+                    $display("[%0t] DTLB请求已检测到", $time);
+            end
+        end
+    endtask
+    
+    // 任务：等待Cache请求
+    task wait_for_cache_request;
+        input logic is_icache;  // 1=ICache, 0=DCache
+        integer timeout;
+        begin
+            timeout = 0;
+            if (is_icache) begin
+                while (!IC_req_monitor && timeout < 5) begin
+                    @(posedge clk);
+                    #1;
+                    timeout = timeout + 1;
+                end
+                if (timeout >= 5)
+                    $display("[%0t] 警告: 等待ICache请求超时", $time);
+                else
+                    $display("[%0t] ICache请求已检测到", $time);
+            end else begin
+                while (!DC_req_monitor && timeout < 5) begin
+                    @(posedge clk);
+                    #1;
+                    timeout = timeout + 1;
+                end
+                if (timeout >= 5)
+                    $display("[%0t] 警告: 等待DCache请求超时", $time);
+                else
+                    $display("[%0t] DCache请求已检测到", $time);
+            end
+        end
+    endtask
+    
+    // 任务：等待TLB完成
+    task wait_for_tlb_done;
+        input logic is_itlb;  // 1=ITLB, 0=DTLB
+        integer timeout;
+        begin
+            timeout = 0;
+            if (is_itlb) begin
+                while (!IT_access_done_monitor && timeout < 15) begin
+                    @(posedge clk);
+                    #1;
+                    timeout = timeout + 1;
+                end
+                if (timeout >= 15)
+                    $display("[%0t] 警告: 等待ITLB完成超时", $time);
+                else
+                    $display("[%0t] ITLB访问已完成", $time);
+            end else begin
+                while (!DT_access_done_monitor && timeout < 15) begin
+                    @(posedge clk);
+                    #1;
+                    timeout = timeout + 1;
+                end
+                if (timeout >= 15)
+                    $display("[%0t] 警告: 等待DTLB完成超时", $time);
+                else
+                    $display("[%0t] DTLB访问已完成", $time);
+            end
+        end
+    endtask
+
+    // 任务：清空TLB和Cache
+    task clear_tlb_and_cache;
+        begin
+            $display("\n[%0t] === 清空TLB和Cache ===", $time);
+            
+            // 方法1: 使用复位信号（最可靠）
+            reset = 1'b1;
+	    IT_req_in = 1'b0;
+            @(posedge clk);
+            $display("  复位信号置位");
+            
+            // 保持复位至少3个周期以确保所有状态被清除
+            repeat(3) @(posedge clk);
+            
+            reset = 1'b0;
+            @(posedge clk);
+            $display("  复位信号释放");
+            
+            // 验证清除效果
+            $display("  验证清除状态:");
+            $display("    IT_access_active_monitor = %b", IT_access_active_monitor);
+            $display("    DT_access_active_monitor = %b", DT_access_active_monitor);
+            $display("    IC_req_monitor = %b", IC_req_monitor);
+            $display("    DC_req_monitor = %b", DC_req_monitor);
+            
+            // 等待系统稳定
+            repeat(2) @(posedge clk);
+            $display("  ✓ TLB和Cache已清空");
+        end
+    endtask
+
+    // 任务：等待Cache完成
+    task wait_for_cache_done;
+        input logic is_icache;  // 1=ICache, 0=DCache
+        integer timeout;
+        begin
+            timeout = 0;
+            if (is_icache) begin
+                while (!IC_done_monitor && timeout < 10) begin
+                    @(posedge clk);
+                    #1;
+                    timeout = timeout + 1;
+                end
+                if (timeout >= 10)
+                    $display("[%0t] 警告: 等待ICache完成超时", $time);
+                else
+                    $display("[%0t] ICache访问已完成", $time);
+            end else begin
+                while (!DC_done_monitor && timeout < 10) begin
+                    @(posedge clk);
+                    #1;
+                    timeout = timeout + 1;
+                end
+                if (timeout >= 10)
+                    $display("[%0t] 警告: 等待DCache完成超时", $time);
+                else
+                    $display("[%0t] DCache访问已完成", $time);
+            end
+        end
+    endtask
+    
+    // 任务：验证取指结果
+    task verify_instruction_fetch;
+        input [127:0] expected_data;
+        input [11:0] expected_br_type;
+        begin
+            if (I_hit) begin
+                if (I_data_out === expected_data) begin
+                    $display("✓ 取指数据正确: %h", I_data_out);
+                end else begin
+                    $display("✗ 取指数据错误: 期望=%h, 实际=%h", 
+                            expected_data, I_data_out);
+                    error_count = error_count + 1;
+                end
+                if (Br_type_out === expected_br_type) begin
+                    $display("✓ 分支类型正确: %b", Br_type_out);
+                end else begin
+                    $display("✗ 分支类型错误: 期望=%b, 实际=%b", 
+                            expected_br_type, Br_type_out);
+                    error_count = error_count + 1;
+                end
+                if (IC_dataout_val) begin
+                    $display("✓ IC_dataout_val有效");
+                end else begin
+                    $display("✗ IC_dataout_val无效");
+                    error_count = error_count + 1;
+                end
+            end else begin
+                $display("✗ 取指未命中");
+                error_count = error_count + 1;
+            end
+        end
+    endtask
+    
+    // 任务：验证数据加载结果
+    task verify_data_load;
+        input [63:0] expected_data;
+        begin
+            if (D_hit) begin
+                if (D_data_out === expected_data) begin
+                    $display("✓ 数据加载正确: %h", D_data_out);
+                end else begin
+                    $display("✗ 数据加载错误: 期望=%h, 实际=%h", 
+                            expected_data, D_data_out);
+                    error_count = error_count + 1;
+                end
+                if (DC_dataout_val) begin
+                    $display("✓ DC_dataout_val有效");
+                end else begin
+                    $display("✗ DC_dataout_val无效");
+                    error_count = error_count + 1;
+                end
+            end else begin
+                $display("✗ 数据加载未命中");
+                error_count = error_count + 1;
+            end
+        end
+    endtask
+    
+    // 任务：验证数据存储结果
+    task verify_data_store;
+        begin
+            // 验证Store操作是否被正确接收
+            if (D_hit) begin
+                $display("✓ Store操作命中");
+            end else begin
+                $display("✗ Store操作未命中");
+                error_count = error_count + 1;
+            end
+        end
+    endtask
+    
+    // 任务：生成测试指令块
+    function [127:0] generate_test_instructions;
+        input integer seed;
+        begin
+            case(seed % 4)
+                0: generate_test_instructions = {
+                    32'h00000013,  // addi x0, x0, 0
+                    32'h00100093,  // addi x1, x0, 1
+                    32'h00200113,  // addi x2, x0, 2
+                    32'h00300193   // addi x3, x0, 3
+                };
+                1: generate_test_instructions = {
+                    32'b0000000_00000_00000_000_00000_1100011,  // beq x0, x0, 0
+                    32'b00000000000000000000_00001_1101111,     // jal x1, 0
+                    32'b000000000000_00001_000_00010_1100111,   // jalr x2, x1, 0
+                    32'b00000000000000000000_00000_0010111      // auipc x0, 0
+                };
+                2: generate_test_instructions = {
+                    32'hFE010113,  // addi sp, sp, -32
+                    32'h00112223,  // sw x1, 4(sp)
+                    32'h00212423,  // sw x2, 8(sp)
+                    32'h00312623   // sw x3, 12(sp)
+                };
+                3: generate_test_instructions = {
+                    32'h00008067,  // jalr x0, x1, 0
+                    32'h0040006F,  // jal x0, 4
+                    32'h00000063,  // beq x0, x0, 0
+                    32'h00000013   // addi x0, x0, 0
+                };
+            endcase
+        end
+    endfunction
+    
+    // 任务：生成分支指令块
+    function [127:0] generate_branch_instructions;
+        input integer seed;
+        begin
+            case(seed % 3)
+                0: generate_branch_instructions = {
+                    32'b0000000_00001_00010_000_01000_1100011,  // beq x1, x2, 8
+                    32'b0000000_00011_00100_001_10000_1100011,  // bne x3, x4, 16
+                    32'b0000000_00101_00110_100_11000_1100011,  // blt x5, x6, 24
+                    32'b0000000_00111_01000_101_11100_1100011   // bge x7, x8, 28
+                };
+                1: generate_branch_instructions = {
+                    32'b000000000000_00001_000_00010_1100111,   // jalr x2, x1, 0
+                    32'b00000000010000000000_00011_1101111,    // jal x3, 1024
+                    32'b0000000_01001_01010_110_00100_1100011, // bltu x9, x10, 4
+                    32'b0000000_01011_01100_111_01000_1100011  // bgeu x11, x12, 8
+                };
+                2: generate_branch_instructions = {
+                    32'h0040006F,  // jal x0, 4
+                    32'h0080006F,  // jal x0, 8
+                    32'h00C0006F,  // jal x0, 12
+                    32'h0100006F   // jal x0, 16
+                };
+            endcase
+        end
+    endfunction
+    
+    // 任务：生成测试数据块
+    function [127:0] generate_test_data;
+        input integer seed;
+        begin
+            case(seed % 3)
+                0: generate_test_data = {
+                    64'h0123456789ABCDEF,
+                    64'hFEDCBA9876543210
+                };
+                1: generate_test_data = {
+                    64'hDEADBEEFCAFEBABE,
+                    64'hBABECAFEBEEFDEAD
+                };
+                2: generate_test_data = {
+                    64'h1111111122222222,
+                    64'h3333333344444444
+                };
+            endcase
+        end
+    endfunction
+   
+    // 测试用例：TLB页表遍历测试（指令侧）
+    task test_instruction_tlb_page_walk;
+        input [38:0] test_va;
+        input string test_name;
+        begin
+            $display("\n=== TLB页表遍历测试（指令侧）: %s ===", test_name);
+            $display("虚拟地址: %h", test_va);
+            
+            set_instruction_access(test_va, 1'b1);
+            @(posedge clk);
+            #1;
+            
+            // 等待ITLB请求
+            wait_for_tlb_request(1'b1);
+            if (IT_req_monitor) begin
+                $display("✓ ITLB请求已发出，缺失地址: %h", IT_miss_va_monitor);
+                
+                // 等待ITLB完成
+                wait_for_tlb_done(1'b1);
+                if (IT_access_done_monitor) begin
+                    $display("✓ ITLB页表遍历完成");
+                    $display("  获取的物理地址: %h", IT_PA_monitor);
+                end else begin
+                    $display("✗ ITLB页表遍历未完成");
+                    error_count = error_count + 1;
+                end
+            end else begin
+                $display("✗ 未检测到ITLB请求");
+                error_count = error_count + 1;
+            end
+            
+            reset_data_access();
+            set_instruction_access(0, 0);
+        end
+    endtask
+    
+    // 测试用例：TLB页表遍历测试（数据侧）
+    task test_data_tlb_page_walk;
+        input [38:0] test_va;
+        input string test_name;
+        begin
+            $display("\n=== TLB页表遍历测试（数据侧）: %s ===", test_name);
+            $display("虚拟地址: %h", test_va);
+            
+            set_data_load_access(test_va);
+            @(posedge clk);
+            #1;
+            
+            // 等待DTLB请求 - 通过DC_req_monitor监控
+            wait_for_tlb_request(1'b0);
+            if (DT_req_monitor) begin
+                $display("✓ DTLB请求已发出");
+                
+                // 等待DTLB完成
+                wait_for_tlb_done(1'b0);
+                if (DT_access_done_monitor) begin
+                    $display("✓ DTLB页表遍历完成");
+                end else begin
+                    $display("✗ DTLB页表遍历未完成");
+                    error_count = error_count + 1;
+                end
+            end else begin
+                $display("✗ 未检测到DTLB请求");
+                error_count = error_count + 1;
+            end
+            
+            reset_data_access();
+        end
+    endtask
+    
+    // 测试用例：Cache命中/缺失测试（指令）
+    task test_instruction_cache_hit_miss;
+        input [38:0] test_va;
+        input string test_name;
+        begin
+            $display("\n=== 指令Cache命中/缺失测试: %s ===", test_name);
+            $display("虚拟地址: %h", test_va);
+            
+            set_instruction_access(test_va, 1'b1);
+            @(posedge clk);
+	    @(posedge clk);
+            #1;
+            
+            if (!I_hit) begin
+                $display("指令Cache缺失，等待Cache填充...");
+                wait_for_cache_request(1'b1);
+                wait_for_cache_done(1'b1);
+                
+                // 再次访问应该命中
+                set_instruction_access(test_va, 1'b1);
+                @(posedge clk);
+		@(posedge clk);
+                #1;    
+
+
+                if (I_hit) begin
+                    $display("✓ Cache填充后命中成功");
+                end else begin
+                    $display("✗ Cache填充后仍然缺失");
+                    error_count = error_count + 1;
+                end
+            end else begin
+                $display("✓ 指令Cache命中");
+            end
+            
+            reset_data_access();
+        end
+    endtask
+    
+    // 测试用例：Cache命中/缺失测试（数据）
+    task test_data_cache_hit_miss;
+        input [38:0] test_va;
+        input string test_name;
+        begin
+            $display("\n=== 数据Cache命中/缺失测试: %s ===", test_name);
+            $display("虚拟地址: %h", test_va);
+            
+            set_data_load_access(test_va);
+            @(posedge clk);
+            #1;
+            
+            if (!D_hit) begin
+                $display("数据Cache缺失，等待Cache填充...");
+                wait_for_cache_request(1'b0);
+                wait_for_cache_done(1'b0);
+                
+                // 再次访问应该命中
+                set_data_load_access(test_va);
+                @(posedge clk);
+		@(posedge clk);
+                #1;
+
+                
+                if (D_hit) begin
+                    $display("✓ Cache填充后命中成功");
+                end else begin
+                    $display("✗ Cache填充后仍然缺失");
+                    error_count = error_count + 1;
+                end
+            end else begin
+                $display("✓ 数据Cache命中");
+            end
+            
+            reset_data_access();
+        end
+    endtask
+    
+    // 测试用例：数据存储测试
+    task test_data_store;
+        input [38:0] test_va;
+        input [63:0] store_data;
+        input string test_name;
+        begin
+            $display("\n=== 数据存储测试: %s ===", test_name);
+            $display("虚拟地址: %h, 存储数据: %h", test_va, store_data);
+            
+            set_data_store_access(test_va, store_data, 2'b11);
+
+
+	    @(posedge clk);
+            #1;
+            
+            verify_data_store();
+            
+
+            // 验证存储后的加载
+            set_data_load_access(test_va);
+            @(posedge clk);
+            #1;
+            
+            verify_data_load(store_data);
+            
+            reset_data_access();
+        end
+    endtask
+    
+    // 测试用例：并发访问测试
+    task test_concurrent_access;
+        input [38:0] inst_va;
+        input [38:0] data_va;
+        input string test_name;
+        begin
+            $display("\n=== 并发访问测试: %s ===", test_name);
+            $display("指令VA: %h, 数据VA: %h", inst_va, data_va);
+            
+            // 同时发起指令和数据访问
+            set_instruction_access(inst_va, 1'b1);
+            set_data_load_access(data_va);
+            @(posedge clk);
+            #1;
+            
+            display_status("并发访问初始状态");
+            
+            // 监控总线仲裁
+            $display("监控总线仲裁状态...");
+          
+            @(posedge clk);
+            #1;
+            if (IT_req_monitor && DT_req_monitor) begin
+                $display("  I-TLB和D-TLB同时请求总线");
+            end else if (IT_req_monitor) begin
+                $display("  I-TLB请求总线");
+            end else if (DT_req_monitor) begin
+                $display("  D-TLB请求总线");
+            end
+            
+            
+            // 等待两个访问完成
+            wait_for_tlb_done(1'b1);
+            wait_for_tlb_done(1'b0);
+            wait_for_cache_done(1'b1);
+            wait_for_cache_done(1'b0);
+            
+	    @(posedge clk);
+            @(posedge clk);
+            @(posedge clk);
+            @(posedge clk);
+            @(posedge clk);
+
+
+            display_status("并发访问完成状态");
+            
+            reset_data_access();
+            set_instruction_access(0, 0);
+        end
+    endtask
+    
+// 测试用例：Cache替换策略测试（修复脏位问题）
+task test_cache_replacement;
+    input integer num_accesses;
+    input string test_name;
+    integer i;
+    integer monitor_cycles;
+    integer writeback_detected;
+    reg [38:0] addr1;
+    reg [38:0] addr2;
+    reg [38:0] addr3;
+    // 定义要写入的测试数据（用于脏位标记）
+    reg [63:0] store_data1;
+    reg [63:0] store_data2;
+    begin
+        $display("\n=== Cache替换策略测试: %s ===", test_name);
+        $display("时间: %0t", $time);
+        
+        // 初始化变量
+        monitor_cycles = 0;
+        writeback_detected = 0;
+        addr1 = 39'h10002800;
+        addr2 = 39'h10002000;
+        addr3 = 39'h10004000;
+        // 初始化写操作数据
+        store_data1 = 64'h1111111111111111;
+        store_data2 = 64'h2222222222222222;
+        
+        // 步骤1: 清空TLB和Cache，确保从干净状态开始
+        clear_tlb_and_cache();
+        
+        $display("时间: %0t", $time);
+
+        // 步骤2: 选择三个映射到同一个Cache set的地址
+        $display("\n=== 步骤1: 准备测试地址 ===");
+        
+        $display("地址1 (VA): %h → 预期映射到Cache set 0", addr1);
+        $display("地址2 (VA): %h → 同样映射到Cache set 0", addr2);
+        $display("地址3 (VA): %h → 同样映射到Cache set 0", addr3);
+        
+        // 步骤3: 访问前两个地址填充Cache（修改核心：Load + Store 产生脏位）
+        $display("\n=== 步骤2: 填充Cache的两个way（并写入脏数据） ===");
+        
+        $display("加载地址1到Cache (填充way0)...");
+        set_data_load_access(addr1);
+        @(posedge clk);
+        #1;
+        
+        // 等待Cache加载完成
+        wait_for_tlb_done(1'b0);
+        wait_for_cache_done(1'b0);
+        
+        $display("监控Cache状态: DC_req_monitor=%b, D_hit=%b", 
+                DC_req_monitor, D_hit);
+        @(posedge clk);
+        @(posedge clk);
+	@(posedge clk);
+        
+
+
+        // 关键修改1：对地址1执行写操作，标记Cache行为脏
+        $display("对地址1执行写操作（标记脏位）...");
+        set_data_store_access(addr1, store_data1, 2'b11); // 2'b11=64位写
+        @(posedge clk);
+        #1;
+
+        $display("地址1写操作完成，脏位已置1");
+        @(posedge clk);
+        @(posedge clk);
+        
+        $display("加载地址2到Cache (填充way1)...");
+        set_data_load_access(addr2);
+        @(posedge clk);
+        #1;
+        @(posedge clk);
+        @(posedge clk); 
+        @(posedge clk);
+        @(posedge clk);
+        @(posedge clk);
+        
+
+        $display("监控Cache状态: DC_req_monitor=%b, D_hit=%b", 
+                DC_req_monitor, D_hit);
+        
+        // 关键修改2：对地址2执行写操作，标记Cache行为脏
+        $display("对地址2执行写操作（标记脏位）...");
+        set_data_store_access(addr2, store_data2, 2'b11);
+        @(posedge clk);
+        #1;
+        $display("地址2写操作完成，脏位已置1");
+        @(posedge clk);
+        @(posedge clk);
+        @(posedge clk);
+        
+        
+    
+        // 步骤3: 验证两个地址都在Cache中（且脏位为1）
+        $display("\n=== 步骤3: 验证两个地址都在Cache中（脏位已置1） ===");
+        
+        $display("验证地址1在Cache中...");
+        set_data_load_access(addr1);
+        @(posedge clk);
+        #1;
+        
+        if (D_hit) begin
+            $display("✓ 地址1命中Cache (way0)，脏位状态: DC_dirty_monitor=%b", DC_dirty_monitor);
+        end else begin
+            $display("✗ 地址1未命中Cache");
+            error_count = error_count + 1;
+        end
+        
+        @(posedge clk);
+        @(posedge clk);
+        
+        $display("验证地址2在Cache中...");
+        set_data_load_access(addr2);
+        @(posedge clk);
+        #1;
+        
+        if (D_hit) begin
+            $display("✓ 地址2命中Cache (way1)，脏位状态: DC_dirty_monitor=%b", DC_dirty_monitor);
+        end else begin
+            $display("✗ 地址2未命中Cache");
+            error_count = error_count + 1;
+        end
+        
+        @(posedge clk);
+        @(posedge clk);
+
+        // 后续步骤保持不变（访问地址3触发替换，此时会检测到脏数据写回）
+        // 步骤4: 访问第三个地址，触发Cache替换
+        $display("\n=== 步骤4: 触发Cache替换（预期检测到脏数据写回） ===");
+        
+        $display("访问地址3 (应触发Cache替换)...");
+        
+        set_data_load_access(addr3);
+        @(posedge clk);
+        #1;
+        
+        // 重置监控变量
+        monitor_cycles = 0;
+        writeback_detected = 0;
+        
+        while (monitor_cycles < 30) begin
+            @(posedge clk);
+            #1;
+            monitor_cycles = monitor_cycles + 1;
+            
+            // 监控主存写操作（脏数据写回）
+            if (mem_write_en_monitor) begin
+                writeback_detected = writeback_detected + 1;
+                $display("[%0t] 周期 %0d: 检测到Cache替换 - 写回地址=%h (脏数据写回)", 
+                        $time, monitor_cycles, mem_write_addr_monitor);
+            end
+            
+            // 监控Cache请求状态
+            if (DC_req_monitor) begin
+                $display("[%0t] 周期 %0d: Cache请求总线", $time, monitor_cycles);
+            end
+            
+            // 检查是否完成
+            if (D_hit) begin
+                $display("[%0t] 周期 %0d: 地址3已命中Cache", $time, monitor_cycles);
+                break;
+            end
+        end
+
+        @(posedge clk);
+	#1;
+
+        // 步骤5: 分析结果（新增脏位相关打印）
+        $display("\n=== 步骤5: 替换结果分析 ===");
+        $display("总监控周期数: %0d", monitor_cycles);
+        $display("检测到的写回操作: %0d (脏数据写回次数)", writeback_detected);
+    
+        // 验证地址3现在在Cache中
+        $display("再次访问地址3...");
+        set_data_load_access(addr3);
+        @(posedge clk);
+        #1;
+        
+        if (D_hit) begin
+            $display("✓ 地址3命中Cache (替换成功)");
+        end else begin
+            $display("✗ 地址3未命中 (替换失败)");
+            error_count = error_count + 1;
+        end
+        
+        // 验证地址1或地址2有一个被替换出去了
+        $display("\n验证替换效果...");
+        $display("访问地址2...");
+        set_data_load_access(addr2);
+        @(posedge clk);
+	@(posedge clk);
+        #1;
+               
+        reset_data_access();
+
+        
+        $display("\n=== Cache替换策略测试总结 ===");
+        $display("测试结果: %s", (error_count == 0) ? "通过" : "失败");
+        $display("关键验证: 脏数据写回次数=%d (预期≥1)", writeback_detected);
+    end
+endtask
+    
+    // 测试用例：暂停信号测试
+    task test_pause_signal;
+        input string test_name;
+        begin
+            $display("\n=== 暂停信号测试: %s ===", test_name);
+            
+            // 发起指令访问
+            set_instruction_access(39'h00001000, 1'b1);
+            @(posedge clk);
+            #1;
+            
+            // 启用暂停信号
+            pause_signal = 1'b1;
+            $display("启用暂停信号");
+            
+            // 监控暂停期间的行为
+            for (int i = 0; i < 5; i = i + 1) begin
+                @(posedge clk);
+                #1;
+                if (IC_req_monitor) begin
+                    $display("  暂停期间周期 %d: I-Cache请求=%b", i, IC_req_monitor);
+                end
+            end
+            $display("\n=== 时555间: %0t", $time);
+            // 禁用暂停信号
+            pause_signal = 1'b0;
+            $display("禁用暂停信号");
+            
+            // 等待访问完成
+
+            
+
+           @(posedge clk);
+@(posedge clk);
+@(posedge clk);
+
+@(posedge clk);
+@(posedge clk);
+@(posedge clk);
+@(posedge clk);
+@(posedge clk);
+@(posedge clk);
+@(posedge clk);
+@(posedge clk);
+@(posedge clk);
+@(posedge clk);
+@(posedge clk);
+@(posedge clk);
+@(posedge clk);
+
+$display("\n=== 测试试 ===，时间: %0t", $time);            
+            display_status("暂停测试完成状态");
+            
+            reset_data_access();
+            set_instruction_access(0, 0);
+        end
+    endtask
+    
+    // 主测试程序
+    initial begin
+        // 初始化波形文件
+        $fsdbDumpfile("memory_system_testbench.fsdb");
+        $fsdbDumpvars(0, Memory_System_Testbench);
+        
+        // 初始化信号
+        reset = 1'b1;
+        I_VA = 39'b0;
+        IT_req_in = 1'b0;
+        IC_dataout_rdy = 1'b0;
+        D_VA = 39'b0;
+        St_data = 64'b0;
+        St_type = 2'b00;
+        Ld_en = 1'b0;
+        St_en = 1'b0;
+        DC_dataout_rdy = 1'b0;
+        pause_signal = 1'b0;
+        test_cycle_count = 0;
+        error_count = 0;
+        
+        // 等待时钟稳定
+        #31;
+        
+        $display("\n=== 内存系统集成测试开始 ===");
+        $display("时间: %0t", $time);
+        
+        // 阶段1：保持复位状态，初始化主存
+        $display("=== 阶段 1: 在复位状态下初始化主存 ===");
+        reset = 1'b1;
+        repeat(2) @(posedge clk);
+        
+        // 初始化主存内容
+        force_initialize_memory();
+        
+        // 阶段2：释放复位
+        $display("\n=== 阶段 2: 释放系统复位 ===");
+        repeat(3) @(posedge clk);
+        reset = 1'b0;
+        @(posedge clk);
+        $display("[%0t] 系统复位完成", $time);
+        
+        #1;
+        
+        // ========== 测试用例开始 ==========
+        
+        // 测试用例1: 基本指令访问测试
+        $display("\n=== 测试用例 1: 基本指令访问测试 ===");
+        test_instruction_tlb_page_walk(39'h00001000, "基本指令TLB遍历");
+        test_instruction_cache_hit_miss(39'h00001000, "指令Cache命中/缺失");
+
+        @(posedge clk);
+
+        // 测试用例2: 基本数据访问测试
+        $display("\n=== 测试用例 2: 基本数据访问测试 ===，时间: %0t", $time);
+        test_data_tlb_page_walk(39'h10001000, "基本数据TLB遍历");
+        test_data_cache_hit_miss(39'h10001000, "数据Cache命中/缺失");
+
+	@(posedge clk);
+
+        // 测试用例3: 数据存储测试
+        $display("\n=== 测试用例 3: 数据存储测试 ===，时间: %0t", $time);
+        test_data_store(39'h10001000, 64'h8877665544332211, "基本数据存储");
+
+ 	@(posedge clk);
+        
+        // 在测试用例4前清空TLB和Cache
+        clear_tlb_and_cache();
+	
+
+	// 测试用例4: 并发访问测试
+        $display("\n=== 测试用例 4: 并发访问测试 ===，时间: %0t", $time);
+        test_concurrent_access(39'h00001000, 39'h10001000, "指令和数据并发访问");
+
+	@(posedge clk);
+	
+        // 测试用例5: Cache替换策略测试
+        $display("\n=== 测试用例 5: Cache替换策略测试 ===，时间: %0t", $time);
+        test_cache_replacement(20, "触发Cache替换");
+
+	@(posedge clk);
+
+ 	// 测试用例6: 暂停信号测试
+        $display("\n=== 测试用例 6: 暂停信号测试 ===，时间: %0t", $time);
+        test_pause_signal("暂停功能验证");
+
+        
+        // ========== 测试用例结束 ==========
+        
+        // 释放force命令
+        release_memory_forces();
+        
+        $display("\n=== 测试结束 ===");
+        $display("总测试周期数: %0d", test_cycle_count);
+        $display("错误计数: %0d", error_count);
+        
+        if (error_count == 0) begin
+            $display("✓ 所有测试用例通过！");
+        end else begin
+            $display("✗ 发现 %0d 个错误", error_count);
+        end
+        
+        #100;
+        $finish;
+    end
+    
+    // 周期计数器
+    always @(posedge clk) begin
+        if (!reset) begin
+            test_cycle_count <= test_cycle_count + 1;
+        end else begin
+            test_cycle_count <= 0;
+        end
+    end
+    
+    // 监控重要信号变化
+    always @(posedge clk) begin
+        if (!reset) begin
+            // 监控总线请求
+            if (IT_req_monitor && !IT_access_active_monitor) begin
+                $display("[%0t] I-TLB总线请求: 缺失地址=%h, 访问计数器=%b, 活跃=%b", 
+                        $time, IT_miss_va_monitor, IT_access_counter_monitor, IT_access_active_monitor);
+            end
+            if (IC_req_monitor) begin
+                $display("[%0t] I-Cache总线请求: 地址=%h, 完成=%b", 
+                        $time, IC_addr_monitor, IC_done_monitor);
+            end
+            if (DC_req_monitor) begin
+                $display("[%0t] D-Cache总线请求: 地址=%h, 脏=%b, 完成=%b", 
+                        $time, DC_addr_monitor, DC_dirty_monitor, DC_done_monitor);
+            end
+            
+            // 监控命中事件
+            if (I_hit && IC_dataout_val) begin
+                $display("[%0t] 指令命中: VA=%h, 数据=%h, 分支类型=%b", 
+                        $time, I_VA, I_data_out, Br_type_out);
+            end
+            if (D_hit && DC_dataout_val) begin
+                $display("[%0t] 数据命中: VA=%h, 数据=%h", 
+                        $time, D_VA, D_data_out);
+            end
+            
+            // 监控TLB完成信号
+            if (IT_access_done_monitor) begin
+                $display("[%0t] I-TLB访问完成（三级页表遍历结束）", $time);
+            end
+            if (DT_access_done_monitor) begin
+                $display("[%0t] D-TLB访问完成（三级页表遍历结束）", $time);
+            end
+            
+            // 监控TLB访问计数器的变化
+            if (IT_access_active_monitor) begin
+                $display("[%0t] I-TLB访问进行中: 计数器=%b", $time, IT_access_counter_monitor);
+            end
+            if (DT_access_active_monitor) begin
+                $display("[%0t] D-TLB访问进行中: 计数器=%b", $time, DT_access_counter_monitor);
+            end
+            
+            // 监控主存访问
+            if (mem_write_en_monitor) begin
+                $display("[%0t] 主存写操作: 地址=%h, 数据=%h", 
+                        $time, mem_write_addr_monitor, mem_write_data_monitor);
+            end
+            if (mem_data_valid_monitor) begin
+                $display("[%0t] 主存数据有效: 读地址=%h", $time, mem_read_addr_monitor);
+            end
+        end
+    end
+    
+endmodule

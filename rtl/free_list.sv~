@@ -1,0 +1,245 @@
+/******************************************************************************
+ * Filename:free_list.sv
+ * Author:FMRT22-HYC
+ * Create date:2025.12.16
+ * Description:supply free physical register
+ * ***************************************************************************/
+module free_list #(
+    parameter LOGIC_REG_NUM = 32,       // 逻辑寄存器数量（x0-x31）
+    parameter PHY_REG_NUM   = 64,       // 物理寄存器总数（64个）
+    parameter PHY_REG_WID   = 6,        // 物理寄存器号宽度
+    parameter PTR_WIDTH     = 5         // 指针宽度
+)(
+    // ========== 时钟和复位 ==========
+    input  logic                     clk,
+    input  logic                     reset,
+    
+    // ========== 分配接口 ==========
+    input  logic                     alloc_en_1,     // 分配使能1（请求分配）
+    input  logic                     alloc_en_2,     // 分配使能2（请求分配）
+    output logic [PHY_REG_WID-1:0]   alloc_phy_1,    // 分配的物理寄存器1
+    output logic [PHY_REG_WID-1:0]   alloc_phy_2,    // 分配的物理寄存器2
+    
+    // ========== 回收接口 ==========
+    input  logic                     free_en_1,      // 回收使能1
+    input  logic [PHY_REG_WID-1:0]   free_phy_1,     // 回收的物理寄存器1
+    input  logic                     free_en_2,      // 回收使能2
+    input  logic [PHY_REG_WID-1:0]   free_phy_2,     // 回收的物理寄存器2
+    
+    // ========== 分支恢复接口 ==========
+    input  logic                     recover_en_1,   // 恢复使能1
+    input  logic [PHY_REG_WID-1:0]   recover_phy_1,  // 恢复的物理寄存器1
+    input  logic                     recover_en_2,   // 恢复使能2
+    input  logic [PHY_REG_WID-1:0]   recover_phy_2,  // 恢复的物理寄存器2
+
+    // ========== ROB状态接口 ==========
+    input  logic                     rob_full,       // ROB为满（free_list需要暂停，不能分配物理寄存器）
+
+    // ========== 状态接口 ==========
+    output logic                     free_list_null, // 空标志（=1时暂停流水线）
+    output logic [PTR_WIDTH:0]       free_count      // 空闲寄存器数量（0-32）
+);
+
+    // ========================================================
+    // 存储单元和指针
+    // ========================================================
+    logic [PHY_REG_WID-1:0] freelist_array [LOGIC_REG_NUM-1:0];
+    logic [PTR_WIDTH-1:0] rd_ptr;  // 读指针
+    logic [PTR_WIDTH-1:0] wr_ptr;  // 写指针
+    logic [PTR_WIDTH:0]   count;   // 计数器（6 bits for 0-32）
+    
+    // ========================================================
+    // 分配逻辑：Free_list不空、ROB不满就能分配
+    // ========================================================
+    logic [1:0] alloc_req_num;  // 请求分配的指令数
+    logic can_allocate;         // 是否能分配
+    logic [PTR_WIDTH-1:0] next_rd_ptr; // 下一个读指针
+    
+    // 计算下一个读指针
+    assign next_rd_ptr = (rd_ptr == LOGIC_REG_NUM-1) ? {PTR_WIDTH{1'b0}} : rd_ptr + 1;
+    
+    // 计算分配请求数
+    assign alloc_req_num = {1'b0, alloc_en_1} + {1'b0, alloc_en_2};
+    
+    // 是否能分配（条件：空闲数量足够、ROB不满）
+    assign can_allocate = (count > 0) && (count >= alloc_req_num) && !rob_full;
+    
+    // 空标志（当不能分配时暂停流水线）
+    assign free_list_null = ~can_allocate;
+    
+    // 分配物理寄存器号
+    always_comb begin
+        alloc_phy_1 = {PHY_REG_WID{1'b0}};
+        alloc_phy_2 = {PHY_REG_WID{1'b0}};
+        
+        if (can_allocate & (~bru_recovery)) begin
+            // 第一条指令分配
+            if (alloc_en_1) begin
+                alloc_phy_1 = freelist_array[rd_ptr];
+            end
+            
+            // 第二条指令分配
+            if (alloc_en_2) begin
+                if (alloc_en_1) begin
+                    // 两条指令都分配
+                    alloc_phy_2 = freelist_array[next_rd_ptr];
+                end else begin
+                    // 只有第二条指令分配
+                    alloc_phy_2 = freelist_array[rd_ptr];
+                end
+            end
+        end
+    end
+    
+    // ========================================================
+    // 读指针更新（分配成功时移动）
+    // ========================================================
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            rd_ptr <= {PTR_WIDTH{1'b0}};
+        end else if (can_allocate & (~bru_recovery)) begin
+            case (alloc_req_num)
+                2'd1: begin
+                    rd_ptr <= next_rd_ptr;
+                end
+                2'd2: begin
+                    // 移动2个位置
+                    if (rd_ptr >= LOGIC_REG_NUM-2) begin
+                        rd_ptr <= rd_ptr + 2 - LOGIC_REG_NUM;
+                    end else begin
+                        rd_ptr <= rd_ptr + 2;
+                    end
+                end
+                default: rd_ptr <= rd_ptr;
+            endcase
+        end
+    end
+    
+    // ========================================================
+    // 回收和恢复操作数计算
+    // ========================================================
+    logic [1:0] free_num;      // 回收操作数
+    logic [1:0] recover_num;   // 恢复操作数
+    logic [PTR_WIDTH-1:0] next_wr_ptr; // 下一个写指针
+    
+    // 计算下一个写指针
+    assign next_wr_ptr = (wr_ptr == LOGIC_REG_NUM-1) ? {PTR_WIDTH{1'b0}} : wr_ptr + 1;
+    
+    // 计算回收操作数
+    assign free_num = {1'b0, free_en_1} + {1'b0, free_en_2};
+    
+    // 计算恢复操作数
+    assign recover_num = {1'b0, recover_en_1} + {1'b0, recover_en_2};
+    
+    // ========================================================
+    // 写指针更新
+    // ========================================================
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            wr_ptr <= {PTR_WIDTH{1'b0}};
+        end else begin
+            // 优先级：恢复 > 回收
+            if (recover_num > 0) begin
+                case (recover_num)
+                    2'd1: wr_ptr <= next_wr_ptr;
+                    2'd2: begin
+                        if (wr_ptr >= LOGIC_REG_NUM-2) begin
+                            wr_ptr <= wr_ptr + 2 - LOGIC_REG_NUM;
+                        end else begin
+                            wr_ptr <= wr_ptr + 2;
+                        end
+                    end
+                endcase
+            end else if (free_num > 0) begin
+                case (free_num)
+                    2'd1: wr_ptr <= next_wr_ptr;
+                    2'd2: begin
+                        if (wr_ptr >= LOGIC_REG_NUM-2) begin
+                            wr_ptr <= wr_ptr + 2 - LOGIC_REG_NUM;
+                        end else begin
+                            wr_ptr <= wr_ptr + 2;
+                        end
+                    end
+                endcase
+            end
+        end
+    end
+    
+    // ========================================================
+    // 计数器更新 
+    // ========================================================
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            count <= LOGIC_REG_NUM;  // 初始32个空闲寄存器
+        end else begin
+            // 临时变量用于计算新值
+            logic [PTR_WIDTH:0] new_count;
+            
+            // 计算新值
+            new_count = count;
+            
+            // 减去分配的数量
+            if (can_allocate  && (~bru_recovery) && alloc_req_num > 0) begin
+                new_count = new_count - alloc_req_num;
+            end
+            
+            // 加上恢复的数量
+            if (recover_num > 0) begin
+                new_count = new_count + recover_num;
+            end
+            
+            // 加上回收的数量
+            if (free_num > 0) begin
+                new_count = new_count + free_num;
+            end
+            
+            // 边界检查并赋值
+            if (new_count > LOGIC_REG_NUM) begin
+                count <= LOGIC_REG_NUM;
+            end else if (new_count < 0) begin
+                count <= 0;
+            end else begin
+                count <= new_count;
+            end
+        end
+    end
+    
+    assign free_count = count;
+    
+    // ========================================================
+    // 数据写入逻辑
+    // ========================================================
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            // 复位时初始化数组
+            for (int i = 0; i < LOGIC_REG_NUM; i = i + 1) begin
+                freelist_array[i] <= i + 32;
+            end
+        end else begin
+            // 恢复写入（最高优先级）
+            if (recover_num > 0) begin
+                if (recover_en_1) begin
+                    freelist_array[wr_ptr] <= recover_phy_1;
+                end
+                if (recover_en_1 & recover_en_2) begin
+                    freelist_array[next_wr_ptr] <= recover_phy_2;
+                end
+                if ((!recover_en_1) & recover_en_2) begin
+                    freelist_array[wr_ptr] <= recover_phy_2;
+                end
+            end
+            // 回收写入
+            else if (free_num > 0) begin
+                if (free_en_1) begin
+                    freelist_array[wr_ptr] <= free_phy_1;
+                end
+                if (free_en_1 & free_en_2) begin
+                    freelist_array[next_wr_ptr] <= free_phy_2;
+                end
+                if ((!free_en_1) & free_en_2) begin
+                    freelist_array[wr_ptr] <= free_phy_2;
+                end
+            end
+        end
+    end
+endmodule

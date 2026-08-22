@@ -1,0 +1,273 @@
+module top_alu (
+    input logic clk,
+    input logic reset,
+    
+    // 来自前端/译码器的输入
+    input logic [6:0] alu_rob_id1,
+    input logic [6:0] alu_rob_id2,
+    input logic [5:0] alu_rs1_number1,
+    input logic [5:0] alu_rs2_number1,
+    input logic [5:0] alu_rs1_number2,
+    input logic [5:0] alu_rs2_number2,
+    input logic [63:0] alu_imm1,
+    input logic [63:0] alu_imm2,
+    input logic [5:0] alu_rd_number1,
+    input logic [5:0] alu_rd_number2,
+    input logic [3:0] alu_control1,
+    input logic [3:0] alu_control2,
+    input logic alu_reg_write1,
+    input logic alu_reg_write2,
+    input logic [1:0] alu_instr_type1,
+    input logic [1:0] alu_instr_type2,
+    input logic alu_instr_valid1,
+    input logic alu_instr_valid2,
+    input logic alu_rs1_valid1,
+    input logic alu_rs1_valid2,
+    input logic alu_rs2_valid1,
+    input logic alu_rs2_valid2,
+    
+    // 来自其他单元的总线用于唤醒
+    input logic [6:0] bus_bru,
+    input logic [6:0] bus_lsu,
+    input logic [6:0] bus_mul,
+    input logic [6:0] bus_div,
+    
+    // 来自分支恢复单元
+    input logic bru_recovery,
+    input logic [6:0] bru_rob_id,
+    
+    // 来自物理寄存器堆的值
+    input logic [63:0] alu_prf_rs1_value,
+    input logic [63:0] alu_prf_rs2_value,
+    
+    // 输出到物理寄存器堆的寄存器号
+    output logic [5:0] alu_rs1_number_prf,
+    output logic [5:0] alu_rs2_number_prf,
+
+    // 来自其他执行单元写回阶段的结果（用于转发）
+    input logic [5:0] bru_rd_wb,
+    input logic [5:0] mul_rd_wb,
+    input logic [5:0] div_rd_wb,
+    input logic [5:0] lsu_rd_wb,
+    
+    // 来自其他执行单元写回阶段的结果值（用于转发）
+    input logic [63:0] bru_value_wb,
+    input logic [63:0] mul_value_wb,
+    input logic [63:0] div_value_wb,
+    input logic [63:0] lsu_value_wb,
+    
+    // 输出到写回单元
+    output logic [6:0] alu_rob_id_wb,
+    output logic alu_complete_wb,
+    output logic [5:0] alu_rd_wb,
+    output logic [63:0] alu_value_wb,
+    output logic alu_reg_write_wb,
+    
+    // 状态输出
+    output logic alu_iq1_full,
+    output logic [6:0] bus_alu,
+    input  logic stall,
+    output logic write_ok1,
+    output logic write_ok2
+);
+    
+    // ==================== 内部信号声明 ====================
+    // IQ模块到PRF模块的连接信号
+    logic [5:0] rs1_number_select;
+    logic [5:0] rs2_number_select;
+    logic [63:0] imm_select;
+    logic [5:0] rd_number_select;
+    logic [6:0] rob_id_select;
+    logic [3:0] alu_control_select;
+    logic reg_write_select;
+    logic [1:0] instr_type_select;
+    logic instr_valid_select;
+    
+    // PRF模块到EX模块的连接信号
+    logic [63:0] imm_prf;
+    logic [5:0] rd_number_prf;
+    logic [6:0] rob_id_prf;
+    logic [3:0] alu_control_prf;
+    logic reg_write_prf;
+    logic [1:0] instr_type_prf;
+    logic instr_valid_prf;
+    
+    // EX模块到WB模块的连接信号
+    logic [5:0] rs1_number_ex;
+    logic [5:0] rs2_number_ex;
+    logic [63:0] ex_rs1_value;
+    logic [63:0] ex_rs2_value;
+    logic [5:0] rd_number_ex;
+    logic [6:0] rob_id_ex;
+    logic [3:0] alu_control_ex;
+    logic reg_write_ex;
+    logic [1:0] instr_type_ex;
+    logic [63:0] imm_ex;
+    logic instr_valid_ex;
+    
+    // ALU模块的输出信号
+    logic complete_ex;
+    logic [63:0] value_ex;
+
+    // 控制信号
+    logic [2:0] forward1;
+    logic [2:0] forward2;
+
+    // ==================== 模块实例化 ====================
+    
+    // 实例化IQ模块
+    iq1 u_iq1 (
+        .clk                    (clk),
+        .reset                  (reset),
+        .rob_id1                (alu_rob_id1),
+        .rob_id2                (alu_rob_id2),
+        .rs1_number1            (alu_rs1_number1),
+        .rs2_number1            (alu_rs2_number1),
+        .rs1_number2            (alu_rs1_number2),
+        .rs2_number2            (alu_rs2_number2),
+        .imm1                   (alu_imm1),
+        .imm2                   (alu_imm2),
+        .rd_number1             (alu_rd_number1),
+        .rd_number2             (alu_rd_number2),
+        .alu_control1           (alu_control1),
+        .alu_control2           (alu_control2),
+        .reg_write1             (alu_reg_write1),
+        .reg_write2             (alu_reg_write2),
+        .instr_type1            (alu_instr_type1),
+        .instr_type2            (alu_instr_type2),
+        .instr_valid1           (alu_instr_valid1),
+        .instr_valid2           (alu_instr_valid2),
+        .bru_recovery           (bru_recovery),      // 修正：直接使用输入信号
+        .bru_rob_id             (bru_rob_id),        // 修正：直接使用输入信号
+        .bus_bru                (bus_bru),           // 修正：直接使用输入信号
+        .bus_lsu                (bus_lsu),           // 修正：直接使用输入信号
+        .bus_mul                (bus_mul),           // 修正：直接使用输入信号
+        .bus_div                (bus_div),           // 修正：直接使用输入信号
+        .rs1_valid1             (alu_rs1_valid1),
+        .rs1_valid2             (alu_rs1_valid2),
+        .rs2_valid1             (alu_rs2_valid1),
+        .rs2_valid2             (alu_rs2_valid2),
+        .rs1_number_select      (rs1_number_select),
+        .rs2_number_select      (rs2_number_select),
+        .imm_select             (imm_select),
+        .rd_number_select       (rd_number_select),
+        .rob_id_select          (rob_id_select),
+        .alu_control_select     (alu_control_select),
+        .reg_write_select       (reg_write_select),
+        .instr_type_select      (instr_type_select),
+        .iq1_full               (alu_iq1_full),
+        .instr_valid_select     (instr_valid_select),
+        .bus_alu                (bus_alu),
+	.stall                  (stall),
+	.write_ok1		(write_ok1),
+	.write_ok2		(write_ok2)
+    );
+    
+    // 实例化select_prf模块（寄存器槽）
+    select_prf_alu u_select_prf (
+        .clk                    (clk),
+        .reset                  (reset),
+        .rs1_number_select      (rs1_number_select),
+        .rs2_number_select      (rs2_number_select),
+        .imm_select             (imm_select),
+        .rd_number_select       (rd_number_select),
+        .rob_id_select          (rob_id_select),
+        .alu_control_select     (alu_control_select),
+        .reg_write_select       (reg_write_select),
+        .instr_type_select      (instr_type_select),
+        .instr_valid_select     (instr_valid_select),
+        .bru_recovery           (bru_recovery),      // 修正：直接使用输入信号
+        .bru_rob_id             (bru_rob_id),        // 修正：直接使用输入信号
+        .rs1_number_prf         (alu_rs1_number_prf),
+        .rs2_number_prf         (alu_rs2_number_prf),
+        .imm_prf                (imm_prf),
+        .rd_number_prf          (rd_number_prf),
+        .rob_id_prf             (rob_id_prf),
+        .alu_control_prf        (alu_control_prf),
+        .reg_write_prf          (reg_write_prf),
+        .instr_type_prf         (instr_type_prf),
+        .instr_valid_prf        (instr_valid_prf)
+    );
+    
+    // 实例化prf_ex模块（寄存器槽）
+    prf_ex_alu u_prf_ex (
+        .clk                    (clk),
+        .reset                  (reset),
+        .rs1_number_prf         (alu_rs1_number_prf),
+        .rs2_number_prf         (alu_rs2_number_prf),
+        .rd_number_prf          (rd_number_prf),
+        .prf_rs1_value          (alu_prf_rs1_value),
+        .prf_rs2_value          (alu_prf_rs2_value),
+        .bru_recovery           (bru_recovery),      // 修正：直接使用输入信号
+        .bru_rob_id             (bru_rob_id),        // 修正：直接使用输入信号
+        .rob_id_prf             (rob_id_prf),
+        .reg_write_prf          (reg_write_prf),
+        .instr_type_prf         (instr_type_prf),
+        .alu_control_prf        (alu_control_prf),
+        .imm_prf                (imm_prf),
+        .instr_valid_prf        (instr_valid_prf),
+        .rs1_number_ex          (rs1_number_ex),
+        .rs2_number_ex          (rs2_number_ex),
+        .rd_number_ex           (rd_number_ex),
+        .ex_rs1_value           (ex_rs1_value),
+        .ex_rs2_value           (ex_rs2_value),
+        .rob_id_ex              (rob_id_ex),
+        .reg_write_ex           (reg_write_ex),
+        .instr_type_ex          (instr_type_ex),
+        .alu_control_ex         (alu_control_ex),
+        .imm_ex                 (imm_ex),
+        .instr_valid_ex         (instr_valid_ex)
+    );
+    
+    // 实例化ex_wb模块
+    exwb_alu u_exwb (
+        .clk                    (clk),
+        .reset                  (reset),
+        .rob_id_ex              (rob_id_ex),
+        .complete_ex            (complete_ex),
+        .rd_number_ex           (rd_number_ex),
+        .value_ex               (value_ex),
+        .bru_recovery           (bru_recovery),      // 修正：直接使用输入信号
+        .bru_rob_id             (bru_rob_id),        // 修正：直接使用输入信号
+        .reg_write_ex           (reg_write_ex),
+        .rob_id_wb              (alu_rob_id_wb),
+        .complete_wb            (alu_complete_wb),
+        .rd_number_wb           (alu_rd_wb),
+        .value_wb               (alu_value_wb),
+        .reg_write_wb           (alu_reg_write_wb)
+    );
+
+    // 实例化BYPASS模块（数据转发控制）
+    bypass_alu u_bypass (
+        .prf_rs1                (rs1_number_ex),
+        .prf_rs2                (rs2_number_ex),
+        .alu_rd                 (alu_rd_wb),
+        .bru_rd                 (bru_rd_wb),
+        .mul_rd                 (mul_rd_wb),
+        .div_rd                 (div_rd_wb),
+        .lsu_rd                 (lsu_rd_wb),
+        .reg_write_ex           (reg_write_ex),
+        .forward1               (forward1),
+        .forward2               (forward2)
+    );
+    
+    // 实例化ALU模块（算术逻辑单元）
+    alu u_alu (
+        .forward1               (forward1),
+        .forward2               (forward2),
+        .instr_type_ex          (instr_type_ex),
+        .alu_control_ex         (alu_control_ex),
+        .ex_rs1_value           (ex_rs1_value),
+        .ex_rs2_value           (ex_rs2_value),
+        .alu_value_wb           (alu_value_wb),
+        .bru_value_wb           (bru_value_wb),
+        .mul_value_wb           (mul_value_wb),
+        .div_value_wb           (div_value_wb),
+        .lsu_value_wb           (lsu_value_wb),
+        .imm_ex                 (imm_ex),
+        .instr_valid_ex         (instr_valid_ex),
+        .complete_ex            (complete_ex),
+        .value_ex               (value_ex)
+    );
+    
+endmodule

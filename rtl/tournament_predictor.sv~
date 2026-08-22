@@ -1,0 +1,335 @@
+
+module tournament_predictor (
+    input  logic        clk,
+    input  logic        rst_n,
+
+    /* ========= IF stage ========= */
+    input  logic        if_br,
+    input  logic [63:0] PC,
+    input  logic [1:0]  br_logic,
+    input  logic [2:0]  br_type,
+
+    output logic        br_dir,
+    /* ========= Dec stage ========= */
+    input  logic        dec_recover,
+    input  logic [7:0]  dec_ghr_old,
+    
+    /* ========= BRU stage ========= */
+    input  logic        br_complete,
+    input  logic        bru_recover, 
+    input  logic        dir_right_pre,
+
+    /* ========= BOB ========= */
+            
+    output logic [7:0] bob_g_index_pre,
+    output logic [7:0] bob_b_index_pre,
+    output logic [7:0] bob_c_index_pre,
+   // output logic [2:0] bob_bht_index_pre,/* ========= IF阶段输出存入BOB ========= */
+    output logic       bob_g_dir,
+    output logic       bob_b_dir,
+    output logic [7:0] bob_old_ghr,
+
+
+    /* ========= BRU阶段从BOB输入 ========= */
+    input  logic [7:0] bob_g_index_commit,
+    input  logic [7:0] bob_b_index_commit,
+    input  logic [7:0] bob_c_index_commit,
+
+    //input  logic [2:0] bob_bht_index_commit,
+    input  logic [7:0]  bob_ghr_old,
+    input  logic        bob_g_dir_in,
+    input  logic        bob_b_dir_in,
+    input  logic [63:0] bob_br_pc,
+    input  logic bru_if_b
+);
+
+    /* =========================================
+       GHR / BHT
+    ========================================= */
+    logic [7:0] GHR;
+    logic [7:0] BHT [0:7];
+
+    /* =========================================
+       PHT tables
+    ========================================= */
+    logic [1:0] GPHT [0:255];
+    logic [1:0] BPHT [0:255];
+    logic [1:0] CPHT [0:255];
+
+    /* =========================================
+       PC 展开
+    ========================================= */
+    logic [7:0] pc0, pc1, pc2, pc3;
+
+    assign pc0 = {PC[9:4], 2'b00};
+    assign pc1 = {PC[9:4], 2'b01};
+    assign pc2 = {PC[9:4], 2'b10};
+    assign pc3 = {PC[9:4], 2'b11};
+
+    logic [7:0] bht_write_data;
+    logic bob_bht_index_commit=bob_br_pc[4:2];
+
+    assign bht_write_data =
+    {BHT[bob_bht_index_commit][6:0], dir_right_pre};
+
+    function automatic [7:0] bht_read(
+    input [2:0] idx
+    );
+    begin
+    if (br_complete && bru_if_b && (bob_bht_index_commit == idx))
+        bht_read = bht_write_data;
+    else
+        bht_read = BHT[idx];
+    end
+endfunction
+
+    /* =========================================
+       BHT 读（组合）
+    ========================================= */
+    logic [7:0] bhr0, bhr1, bhr2, bhr3;
+
+    assign bhr0 = bht_read(pc0[4:2]);
+    assign bhr1 = bht_read(pc1[4:2]);
+    assign bhr2 = bht_read(pc2[4:2]);
+    assign bhr3 = bht_read(pc3[4:2]);
+
+    /* =========================================
+       index 生成
+    ========================================= */
+    logic [7:0] g_id0, g_id1, g_id2, g_id3;
+    logic [7:0] b_id0, b_id1, b_id2, b_id3;
+    logic [7:0] c_id0,c_id1,c_id2,c_id3;
+
+    assign g_id0 = pc0 ^ GHR;
+    assign g_id1 = pc1 ^ GHR;
+    assign g_id2 = pc2 ^ GHR;
+    assign g_id3 = pc3 ^ GHR;
+
+    assign b_id0 = pc0 ^ bhr0;
+    assign b_id1 = pc1 ^ bhr1;
+    assign b_id2 = pc2 ^ bhr2;
+    assign b_id3 = pc3 ^ bhr3;
+   
+    assign c_id0 = pc0;
+    assign c_id1 = pc1;
+    assign c_id2 = pc2;
+    assign c_id3 = pc3;
+
+    /* =========================================
+       选择真实分支
+    ========================================= */
+    logic [7:0] g_index, b_index, c_index;
+
+
+    always_comb begin
+        case (br_logic)
+            2'b00: begin
+                g_index = g_id0;
+                b_index = b_id0;
+                c_index = c_id0;
+            
+            end
+            2'b01: begin
+                g_index = g_id1;
+                b_index = b_id1;
+                c_index = c_id1;
+            end
+            2'b10: begin
+                g_index = g_id2;
+                b_index = b_id2;
+                c_index = c_id2;
+            end
+            default: begin
+                g_index = g_id3;
+                b_index = b_id3;
+                c_index = c_id3;
+            end
+        endcase
+    end
+    logic is_cond_br;
+    assign is_cond_br = if_br && (br_type == 3'b001);
+    /* =========================================
+       查表（带 gating）
+    ========================================= */
+    logic g_dir, b_dir, choose_local;
+
+    logic [1:0] g_cnt, b_cnt, c_cnt;
+
+    assign g_cnt = gpht_read(g_index);
+    assign b_cnt = bpht_read(b_index);
+    assign c_cnt = cpht_read(c_index);
+
+    assign g_dir        = is_cond_br ? g_cnt[1] : 1'b0;
+    assign b_dir        = is_cond_br ? b_cnt[1] : 1'b0;
+    assign choose_local = is_cond_br ? c_cnt[1] : 1'b0;
+
+
+    /* 最终输出 */
+    always_comb begin
+        if (!if_br)
+            br_dir = 1'b0;
+        else if (br_type != 3'b001)
+            br_dir = 1'b1;   // 非B条件分支：默认 taken
+        else
+            br_dir = (choose_local ? b_dir : g_dir);
+    end
+      logic [7:0] new_ghr;
+     assign new_ghr = {GHR[6:0], br_dir};
+    /* =========================================
+       GHR 更新
+    ========================================= */
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            GHR <= 0;
+    
+        else if (bru_recover)
+            GHR <= bob_ghr_old;   // 最高优先级（恢复）
+        
+        else if (dec_recover)
+            GHR <= dec_ghr_old; 
+
+        else if (is_cond_br)
+            GHR <= new_ghr;  // 正常投机更新
+    end
+    
+
+    /* =========================================
+       保存到 BOB
+    ========================================= */
+
+    always @* begin
+    if (!rst_n) begin
+        bob_old_ghr        = 0;
+        bob_g_index_pre    = 0;
+        bob_b_index_pre    = 0;
+        bob_c_index_pre    = 0;
+        bob_g_dir          = 0;
+        bob_b_dir          = 0;
+    end
+    else if (is_cond_br) begin
+        bob_old_ghr        = GHR;
+        bob_g_index_pre    = g_index;
+        bob_b_index_pre    = b_index;
+        bob_c_index_pre    = c_index;
+        bob_g_dir          = g_dir;
+        bob_b_dir          = b_dir;
+    end
+end
+    
+    
+
+    /* =========================================
+       BHT 更新（不走 BOB 存储 BHR）
+    ========================================= */
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+                BHT[0] <= 0;
+		BHT[1] <= 0;
+		BHT[2] <= 0;
+		BHT[3] <= 0;
+		BHT[4] <= 0;
+		BHT[5] <= 0;
+		BHT[6] <= 0;
+		BHT[7] <= 0;
+        end
+        else if (br_complete&& bru_if_b ) begin//&& bob_enable
+            BHT[bob_bht_index_commit] <=
+              {BHT[bob_bht_index_commit][6:0], dir_right_pre};
+
+        end
+    end
+
+    /* =========================================
+       PHT 更新
+    ========================================= */
+    logic x, y;
+
+    assign x = (bob_g_dir_in == dir_right_pre);
+    assign y = (bob_b_dir_in == dir_right_pre);
+
+    function automatic [1:0] sat_inc(input [1:0] v);
+        sat_inc = (v == 2'b11) ? v : v + 1;
+    endfunction
+
+    function automatic [1:0] sat_dec(input [1:0] v);
+        sat_dec = (v == 2'b00) ? v : v - 1;
+    endfunction
+    
+    /* =========================================
+   PHT 读（带 bypass = 写优先）
+	========================================= */
+
+	function automatic [1:0] gpht_read(input [7:0] idx);
+	begin
+	    if (br_complete && bru_if_b && (bob_g_index_commit == idx))
+		if (dir_right_pre)
+   		   gpht_read = sat_inc(GPHT[idx]);
+		else
+    		gpht_read = sat_dec(GPHT[idx]);
+	    else
+		gpht_read = GPHT[idx];
+	end
+	endfunction
+
+	function automatic [1:0] bpht_read(input [7:0] idx);
+	begin
+	    if (br_complete && bru_if_b && (bob_b_index_commit == idx))
+		if (dir_right_pre)
+   		 bpht_read = sat_inc(BPHT[idx]);
+		else
+    		bpht_read = sat_dec(BPHT[idx]);
+
+	    else
+		bpht_read = BPHT[idx];
+	end
+	endfunction
+
+	function automatic [1:0] cpht_read(input [7:0] idx);
+	begin
+	    if (br_complete && bru_if_b && (bob_c_index_commit == idx)) begin
+		if (x ^ y)
+		    if (y)
+    		cpht_read = sat_inc(CPHT[idx]);
+		else
+   		 cpht_read = sat_dec(CPHT[idx]);
+
+		else
+		    cpht_read = CPHT[idx]; // 不更新时直接读旧值
+	    end
+	    else
+		cpht_read = CPHT[idx];
+	end
+	endfunction
+  
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            for (int i=0;i<256;i++) begin
+                GPHT[i] <= 2'b10;
+                BPHT[i] <= 2'b01;
+                CPHT[i] <= 2'b10;
+            end
+        end
+        else if (br_complete && bru_if_b ) begin //&& bob_enable
+    
+            // GPHT
+            GPHT[bob_g_index_commit] <= dir_right_pre ?
+                sat_inc(GPHT[bob_g_index_commit]) :
+                sat_dec(GPHT[bob_g_index_commit]);
+    
+            // BPHT
+            BPHT[bob_b_index_commit] <= dir_right_pre ?
+                sat_inc(BPHT[bob_b_index_commit]) :
+                sat_dec(BPHT[bob_b_index_commit]);
+    
+            // CPHT
+            if (x ^ y) begin
+                CPHT[bob_c_index_commit] <= y ?
+                    sat_inc(CPHT[bob_c_index_commit]) :
+                    sat_dec(CPHT[bob_c_index_commit]);
+            end
+        end
+    end
+    
+
+endmodule
+

@@ -1,0 +1,447 @@
+module load_unit(
+   input logic clk,
+   input logic reset,
+   
+   //对于load指令FSM(输入|输出）的信息
+    input logic [6:0]load_rob_id,
+    input logic [5:0]dest_number,
+    input logic [63:0]imm,
+    input logic reg_write,
+    input logic [3:0]lsu_control_1,//也会用于退休store判断是否可以进入状态机
+    input logic instr_valid,
+    input logic [3:0]grant_in,
+    
+    input logic complete_store_end1,
+    input logic [3:0]grant_store,
+
+   //load读物理寄存器在外部完成
+   //load进行转发
+    input logic [63:0]rs1_value,  
+    input logic [63:0]alu_value_wb, 
+    input logic [63:0]bru_value_wb,
+    input logic [63:0]mul_value_wb,
+    input logic [63:0]div_value_wb,
+    input logic [63:0]lsu_value_wb_in,  // 重命名：避免与输出重名
+    input logic [5:0]prf_rs1,
+    input logic [5:0]alu_rd,
+    input logic [5:0]bru_rd,
+    input logic [5:0]mul_rd,
+    input logic [5:0]div_rd,
+    input logic [5:0]lsu_rd,
+    input logic reg_write_ex,  // 补充：转发判断需要的写使能信号
+    input logic sb_full,//表明SB_full
+   
+   //对于store指令FSM（输入|输出）的信息
+    input logic cache_write,
+    input logic [63:0]va,
+    input logic [63:0]rs2_value,
+    input logic [3:0]lsu_control_2,
+    output logic complete_store,
+    
+    //对于FSM本身的信号，load用，store用
+    input logic bru_recovery,
+    input logic cache_valid,  //1:hit  0:miss
+    input logic cache_hit,
+    output logic cache_ready,
+    output logic fsm_free,
+
+    //对于load指令写目的寄存器
+    output logic reg_write_end,
+    output logic [63:0]lsu_value_wb_out,  // 重命名：输出端口
+    output logic [5:0]rd_number_end,      // 修正：分号改为逗号
+
+    //对于load指令访问SB|cache都需要用的信息
+    output logic [63:0]rs2_value_end, 
+    output logic [1:0]store_type_end,        
+    output logic st_en_end,
+    output logic LD_EN_END,
+
+    //对于load指令访问cache和SB最后产生的信号和数据
+    input  logic [63:0]sb_data,
+    input  logic s_b_match,
+    output logic instr_valid_end,
+    input  logic [63:0]cache_data,
+    output logic complete_load_end,
+    output logic [3:0]grant_out,
+    output logic [63:0]address_va,              //storebufer                                              
+    output logic [6:0]load_rob_id_end,
+    output logic [3:0]lsu_control_1_end,
+    output logic [6:0]bus_lsu,
+    output logic [63:0]address_temp_end    //cache
+
+);
+   
+// -------------------------- 变量定义 --------------------------
+logic fsm_free_state;              
+logic [2:0]forward1;                          
+logic [63:0]op1;                   
+logic [63:0]op1_end;               
+logic [63:0]imm_end;               
+logic s_b_match_end;               
+logic [63:0]match_data1_end;       
+logic [63:0]match_data2_end;       
+logic complete1_load;              
+logic complete2_load;              
+logic complete1_load_end;          
+logic complete2_load_end;          
+logic complete;                    
+logic [63:0]match_data1;           
+logic [63:0]match_data2;           
+logic [63:0]lsu_value_wb_out_temp; 
+logic [6:0]bus_lsu_int;
+logic ld_en_end;
+logic reg_write_end_temp;
+logic reg_wirte1;
+logic [3:0] grant_out_next;  // 唯一组合逻辑输出
+logic complete_store_end;
+logic [2:0]next_state;
+logic [2:0]current_state;
+logic [63:0]va_end;
+logic [1:0]store_type;
+logic ld_en,st_en;
+logic LD_EN;
+logic [3:0]lsu_control_lw;
+logic [63:0]address_end1,address_end;
+logic [5:0]prf_rs1_end;
+logic [63:0] adress_temp_end;
+logic [63:0] address_temp,address;
+
+assign address_end1=address_end;
+
+// -------------------------- Store类型解码 --------------------------
+always_comb begin
+    store_type = 2'b00;
+    case(lsu_control_2)  
+       4'b1000: store_type = 2'b00;
+       4'b1001: store_type = 2'b01;
+       4'b1010: store_type = 2'b10;
+       4'b1011: store_type = 2'b11;
+       default: store_type = 2'b00;
+    endcase
+end
+
+// ==============================================
+// 最终修复：GRANT 组合逻辑（无X态，实时更新）
+// ==============================================
+always_comb begin
+    logic [3:0] grant_base;
+
+    // 000状态：外部输入grant_in
+    if (current_state == 3'b000) begin
+        grant_base = grant_in;
+    end
+    // 非000状态：使用上一周期输出的grant_out
+    else begin
+        grant_base = grant_out;
+    end
+
+    // 默认值必须赋值，杜绝XXXX
+    grant_out_next = grant_base;
+
+    // 你的完整仲裁逻辑
+    if (complete_store_end1) begin
+        if (~grant_base[3]) begin
+            grant_out_next = grant_base;
+        end
+        else begin
+            if (grant_store[3]) begin
+                if (grant_base[2:0] < grant_store[2:0]) begin
+                    grant_out_next = grant_base;
+                end
+                else begin
+                    grant_out_next = grant_base - 4'd1;
+                end
+            end
+        end
+    end
+end
+
+// -------------------------- 唤醒总线逻辑 --------------------------
+always_comb begin
+    bus_lsu_int = 7'd0;
+    if(complete) begin
+        bus_lsu_int = {1'b1, rd_number_end};
+    end
+end
+
+// -------------------------- 地址选择 --------------------------
+always_comb begin
+    if(ld_en_end & (~st_en_end)) begin
+        address_va = address_end1;
+    end
+    else if((~ld_en_end) & st_en_end) begin
+        address_va = va_end;
+    end
+    else begin
+        address_va = 64'd0;
+    end
+end
+
+assign address_temp = (current_state == 3'b100) ? address_temp_end : (LD_EN ? address_va : 64'd0);
+
+// -------------------------- 数据转发逻辑 --------------------------
+always_comb begin
+    forward1 = 3'b000;
+    if((prf_rs1_end == alu_rd) && (alu_rd != 0) && reg_write_ex) begin
+        forward1 = 3'b001;
+    end
+    else if((prf_rs1_end == bru_rd) && (bru_rd != 0) && reg_write_ex) begin
+        forward1 = 3'b010;
+    end
+    else if((prf_rs1_end == mul_rd) && (mul_rd != 0) && reg_write_ex) begin
+        forward1 = 3'b011;
+    end
+    else if((prf_rs1_end == div_rd) && (div_rd != 0) && reg_write_ex) begin
+        forward1 = 3'b100;
+    end
+    else if((prf_rs1_end == lsu_rd) && (lsu_rd != 0) && reg_write_ex) begin
+        forward1 = 3'b101;
+    end
+    else begin
+        forward1 = 3'b000;
+    end
+end
+
+// -------------------------- 状态寄存器 --------------------------
+always_ff @(posedge clk) begin
+    if(reset) begin
+        current_state <= 3'b000; 
+        fsm_free <= 1'b1;
+        va_end <= 64'd0;
+        rs2_value_end <= 64'd0;
+        store_type_end <= 2'd0;
+        complete_store_end <= 1'b0;
+        op1_end <= 64'd0;
+        imm_end <= 64'd0;
+        load_rob_id_end <= 7'd0;
+        rd_number_end <= 6'd0;
+        reg_write_end <= 1'd0;
+        lsu_control_1_end <= 4'd0;
+        address_end <= 64'd0;
+        s_b_match_end <= 1'd0;
+        match_data1_end <= 64'd0;
+        match_data2_end <= 64'd0;
+        complete1_load_end <= 1'd0;
+        complete2_load_end <= 1'd0;
+        complete_load_end <= 1'b0;
+        lsu_value_wb_out <= 64'd0;
+        grant_out<=4'd0;
+        instr_valid_end<=1'd0;
+        ld_en_end<=1'd0;
+        st_en_end<=1'd0;
+        cache_ready<=1'd0;
+        LD_EN_END<=1'd0;
+        prf_rs1_end<=6'd0;
+        address_temp_end<=64'd0;
+        bus_lsu <=7'd0;
+    end
+    else begin
+        current_state <= next_state;    
+        fsm_free <= fsm_free_state; 
+        ld_en_end<=ld_en;
+        st_en_end<=st_en;
+        LD_EN_END<=LD_EN;
+        reg_write_end<=reg_wirte1;
+        address_temp_end<=address_temp;
+        bus_lsu<=bus_lsu_int;
+        
+        // 空闲态采样
+        if(current_state==3'b000) begin
+            va_end <= va; 
+            rs2_value_end <= rs2_value;
+            store_type_end <= store_type;
+            imm_end <= imm;
+            load_rob_id_end <= load_rob_id;
+            rd_number_end <= dest_number;
+            lsu_control_1_end <= lsu_control_1;
+            prf_rs1_end<=prf_rs1;
+            reg_write_end_temp <= reg_write & instr_valid;
+            instr_valid_end<=instr_valid;
+        end
+
+        // --------------------------
+        // GRANT 时序：只赋值
+        // --------------------------
+        grant_out <= grant_out_next;
+
+        // 通用锁存
+        address_end <= address;
+        complete_store_end <= complete_store;
+        op1_end <= op1;
+        s_b_match_end <= s_b_match;
+        match_data1_end <= match_data1;
+        match_data2_end <= match_data2;
+        complete1_load_end <= complete1_load;
+        complete2_load_end <= complete2_load;
+        complete_load_end <= complete;
+        lsu_value_wb_out <= lsu_value_wb_out_temp;
+    end
+end
+
+// -------------------------- 状态机 --------------------------
+always_comb begin
+    next_state = current_state;
+    fsm_free_state = 1'b0;
+    complete_store = 1'b0;
+    complete = 1'b0;
+    reg_wirte1 = 1'b0;
+
+    address = 64'd0;
+    match_data1 = 64'd0;
+    match_data2 = 64'd0;
+    complete1_load = 1'b0;
+    complete2_load = 1'b0;
+    lsu_value_wb_out_temp = lsu_value_wb_out;
+    ld_en=1'd0;
+    st_en=1'd0;
+    LD_EN=1'd0;
+    
+    case(current_state)  
+        3'b000: begin
+            if(bru_recovery|sb_full) begin
+                next_state = 3'b000;
+                fsm_free_state = 1'b1;
+            end   
+            else if((lsu_control_2[3]) & (cache_write) & (~((~lsu_control_1[3]) &instr_valid))) begin  
+                next_state = 3'b101;
+                fsm_free_state = 1'b0;
+                st_en=1'd1;
+            end
+            else if(~lsu_control_1[3] & instr_valid) begin
+                next_state = 3'b001;
+                fsm_free_state = 1'b0;
+            end
+            else begin
+                next_state = 3'b000;
+                fsm_free_state = 1'b1;
+            end
+        end
+        
+        3'b001: begin
+            if(bru_recovery|sb_full) begin
+                next_state = 3'b000;
+                fsm_free_state = 1'b1;
+            end
+            else begin
+                case(forward1)
+                    3'b000: op1 = rs1_value;
+                    3'b001: op1 = alu_value_wb;
+                    3'b010: op1 = bru_value_wb;          
+                    3'b011: op1 = mul_value_wb;
+                    3'b100: op1 = div_value_wb;
+                    3'b101: op1 = lsu_value_wb_in;     
+                    default: op1 = rs1_value;
+                endcase
+                ld_en=1'd1;                                                       
+                address = op1+ imm_end;
+                next_state = 3'b010;
+                fsm_free_state = 1'b0;
+            end
+        end
+        
+        3'b010: begin
+            if(bru_recovery|sb_full) begin
+                next_state = 3'b000;
+                fsm_free_state = 1'b1;
+            end
+            else if(s_b_match) begin
+                next_state = 3'b011;
+                match_data1 = sb_data;
+                complete1_load = 1'b1;
+                fsm_free_state = 1'b0;
+            end
+            else begin
+                next_state = 3'b100;
+                fsm_free_state = 1'b0;
+                LD_EN=1'd1;
+            end
+        end
+        
+        3'b100: begin
+            if(bru_recovery|sb_full) begin
+                next_state = 3'b000;
+                fsm_free_state = 1'b1;
+            end
+            else if(cache_hit&cache_valid) begin
+                next_state = 3'b011;
+                match_data2 = cache_data;
+                complete2_load = 1'b1;
+                fsm_free_state = 1'b0;
+                LD_EN=1'd0;
+            end
+            else begin
+                next_state = 3'b100;
+                fsm_free_state = 1'b0;
+                LD_EN=1'd1;
+            end 
+        end
+        
+        3'b011: begin
+            if(bru_recovery|sb_full) begin
+                next_state = 3'b000;
+                fsm_free_state = 1'b1;
+            end
+            else if(complete1_load_end) begin
+                next_state = 3'b000;
+                case(lsu_control_1_end) 
+                    4'b0000: lsu_value_wb_out_temp = {{56{match_data1_end[7]}}, match_data1_end[7:0]};
+                    4'b0001: lsu_value_wb_out_temp = {{48{match_data1_end[15]}}, match_data1_end[15:0]};
+                    4'b0010: lsu_value_wb_out_temp = {{32{match_data1_end[31]}}, match_data1_end[31:0]};
+                    4'b0100: lsu_value_wb_out_temp = {56'd0, match_data1_end[7:0]};
+                    4'b0101: lsu_value_wb_out_temp = {48'd0, match_data1_end[15:0]};
+                    4'b0110: lsu_value_wb_out_temp = {32'd0, match_data1_end[31:0]};
+                    4'b0011: lsu_value_wb_out_temp = match_data1_end;
+                    default: lsu_value_wb_out_temp = 64'd0;
+                endcase
+                complete = 1'b1;
+                fsm_free_state = 1'b1;
+                reg_wirte1 = instr_valid_end & reg_write_end_temp;
+            end
+            else if(complete2_load_end) begin
+                next_state = 3'b000;
+                case(lsu_control_1_end) 
+                    4'b0000: lsu_value_wb_out_temp = {{56{match_data2_end[7]}}, match_data2_end[7:0]};
+                    4'b0001: lsu_value_wb_out_temp = {{48{match_data2_end[15]}}, match_data2_end[15:0]};
+                    4'b0010: lsu_value_wb_out_temp = {{32{match_data2_end[31]}}, match_data2_end[31:0]};
+                    4'b0100: lsu_value_wb_out_temp = {56'd0, match_data2_end[7:0]};
+                    4'b0101: lsu_value_wb_out_temp = {48'd0, match_data2_end[15:0]};
+                    4'b0110: lsu_value_wb_out_temp = {32'd0, match_data2_end[31:0]};
+                    4'b0011: lsu_value_wb_out_temp = match_data2_end;
+                    default: lsu_value_wb_out_temp = 64'd0;
+                endcase
+                complete = 1'b1;
+                fsm_free_state = 1'b1;
+                reg_wirte1 = instr_valid_end & reg_write_end_temp;
+            end
+            else begin
+                next_state = 3'b011;
+                fsm_free_state = 1'b0;
+            end
+        end
+        
+        3'b101: begin
+            if(bru_recovery|sb_full) begin
+                next_state = 3'b000;
+                fsm_free_state = 1'b1;
+            end
+            else if(cache_hit) begin
+                complete_store = 1'b1;
+                next_state = 3'b000;
+                fsm_free_state = 1'b1;
+            end
+            else begin
+                complete_store = 1'b0;
+                next_state = 3'b101;
+                fsm_free_state = 1'b0;
+            end
+        end
+        
+        default: begin
+            next_state = 3'b000;
+            fsm_free_state = 1'b1;
+        end
+    endcase
+end
+
+endmodule
+

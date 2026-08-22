@@ -1,0 +1,63 @@
+module ex1_ex2(
+    input  logic        clk,
+    input  logic        reset,
+    input  logic [3:0]  mdu_control_ex1,        // MDU控制信号
+    input  logic        reg_write_ex1,          // 寄存器写使能
+    input  logic [5:0]  rd_number_ex1,          // RD寄存器编号
+    input  logic [34:0][127:0] product_ex1,     // 35个部分积
+    input  logic        bru_recovery,           // 分支恢复信号
+    input  logic [6:0]  bru_rob_id,             // 分支ROB ID
+    input  logic [6:0]  rob_id_ex1,             // 当前指令ROB ID
+    input  logic        instr_valid_ex1,        // 指令有效信号
+    output logic [5:0]  rd_number_ex2,          // EX2阶段RD编号
+    output logic [6:0]  rob_id_ex2,             // EX2阶段ROB ID
+    output logic        reg_write_ex2,          // EX2阶段寄存器写使能
+    output logic [3:0]  mdu_control_ex2,        // EX2阶段MDU控制
+    output logic        instr_valid_ex2,        // EX2阶段指令有效
+    output logic [34:0][127:0] product_ex2     // EX2阶段部分积
+);   
+  
+    
+    // 定义冲突处理信号
+    logic flush, stall;
+    
+    // 分支恢复检测模块实例化 - 修正端口连接
+    brurecovery bru_re(
+        .bru_recovery(bru_recovery),
+        .bru_rob_id(bru_rob_id),
+        .rob_id(rob_id_ex1),      // 修正：使用rob_id_ex1
+        .flush(flush),
+        .stall(stall)
+    );
+    
+    // 流水线寄存器：EX1 -> EX2
+    always_ff @(posedge clk) begin
+        if (reset || flush || mdu_control_ex1[3]) begin
+            // 复位或冲刷时清零
+            rd_number_ex2   <= 6'd0;
+            rob_id_ex2      <= 7'd0;
+            reg_write_ex2   <= 1'd0;
+            mdu_control_ex2 <= 4'd0;
+            instr_valid_ex2 <= 1'd0;
+            // 清零35个部分积
+            for (int i = 0; i < 35; i++) begin
+                product_ex2[i] <= 128'd0;
+            end
+            
+        end
+        else if (~stall) begin
+            // 非阻塞时传递信号 - 修正所有信号名
+            rd_number_ex2   <= rd_number_ex1;           // 使用ex1输入
+            rob_id_ex2      <= rob_id_ex1;              // 使用ex1输入
+            reg_write_ex2   <= reg_write_ex1;           // 使用ex1输入
+            mdu_control_ex2 <= mdu_control_ex1;         // 使用ex1输入
+            instr_valid_ex2 <= instr_valid_ex1;         // 使用ex1输入
+            // 传递35个部分积
+            for (int i = 0; i < 35; i++) begin
+                product_ex2[i] <= product_ex1[i];
+            end
+        end
+        // stall时保持原有值
+    end
+    
+endmodule

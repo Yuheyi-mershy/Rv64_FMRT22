@@ -1,0 +1,89 @@
+module test_pre_decode;
+
+    logic [127:0] instructions;
+    logic [11:0] PD;
+    
+    // 实例化被测试模块
+    Pre_decode uut (
+        .instrutions(instructions),
+        .PD(PD)
+    );
+    
+    initial begin
+        // 初始化FSDB文件
+        $fsdbDumpfile("pre_decode.fsdb");
+        $fsdbDumpvars(0, test_pre_decode);  // 0表示转储所有层次
+        $fsdbDumpMDA();  // 转储内存数据数组（如果有的话）
+        
+        $display("=== Pre_decode 模块测试开始 ===");
+        $display("时间\t指令包\t\t\t\t预解码结果\t预期结果\t状态");
+        $display("----------------------------------------------------------------");
+        
+        // 测试用例1: 1100011 操作码 (分支指令)
+        instructions = {32'h0, 32'h0, 32'h0, 32'h00600063}; // beq x0, x0, 12
+        #10;
+        $display("%0t\t%32h\t%012b\t001\t\t%s", $time, instructions, PD, 
+                 (PD[2:0] == 3'b001) ? "PASS" : "FAIL");
+        
+        // 测试用例2: 1101111 操作码, rd=link (JAL x1)
+        instructions = {32'h0, 32'h0, 32'h0, 32'h000000ef}; // jal x1, 0
+        #10;
+        $display("%0t\t%32h\t%012b\t010\t\t%s", $time, instructions, PD, 
+                 (PD[2:0] == 3'b010) ? "PASS" : "FAIL");
+        
+        // 测试用例3: 1101111 操作码, rd=!link (JAL x2)
+        instructions = {32'h0, 32'h0, 32'h0, 32'h0000016f}; // jal x2, 0
+        #10;
+        $display("%0t\t%32h\t%012b\t011\t\t%s", $time, instructions, PD, 
+                 (PD[2:0] == 3'b011) ? "PASS" : "FAIL");
+        
+        // 测试用例4: 1100111 操作码, rs1=link, rd=!link (JALR x0, x1)
+        instructions = {32'h0, 32'h0, 32'h0, 32'h00008067}; // jalr x0, x1, 0
+        #10;
+        $display("%0t\t%32h\t%012b\t100\t\t%s", $time, instructions, PD, 
+                 (PD[2:0] == 3'b100) ? "PASS" : "FAIL");
+        
+        // 测试用例5: 1100111 操作码, rs1=link, rd=link (JALR x1, x1)
+        instructions = {32'h0, 32'h0, 32'h0, 32'h000080e7}; // jalr x1, x1, 0
+        #10;
+        $display("%0t\t%32h\t%012b\t010\t\t%s", $time, instructions, PD, 
+                 (PD[2:0] == 3'b010) ? "PASS" : "FAIL");
+        
+        // 测试用例6: 1100111 操作码, rs1=!link, rd=link (JALR x1, x2)
+        instructions = {32'h0, 32'h0, 32'h0, 32'h000100ef}; // jalr x1, x2, 0
+        #10;
+        $display("%0t\t%32h\t%012b\t010\t\t%s", $time, instructions, PD, 
+                 (PD[2:0] == 3'b010) ? "PASS" : "FAIL");
+        
+        // 测试用例7: 1100111 操作码, rs1=!link, rd=!link (JALR x2, x2)
+        instructions = {32'h0, 32'h0, 32'h0, 32'h00010167}; // jalr x2, x2, 0
+        #10;
+        $display("%0t\t%32h\t%012b\t011\t\t%s", $time, instructions, PD, 
+                 (PD[2:0] == 3'b011) ? "PASS" : "FAIL");
+        
+        // 测试用例8: 0010111 操作码 (AUIPC)
+        instructions = {32'h0, 32'h0, 32'h0, 32'h00000017}; // auipc x0, 0
+        #10;
+        $display("%0t\t%32h\t%012b\t101\t\t%s", $time, instructions, PD, 
+                 (PD[2:0] == 3'b101) ? "PASS" : "FAIL");
+        
+        // 测试用例9: 默认情况 (其他操作码)
+        instructions = {32'h0, 32'h0, 32'h0, 32'h00000013}; // addi x0, x0, 0
+        #10;
+        $display("%0t\t%32h\t%012b\t000\t\t%s", $time, instructions, PD, 
+                 (PD[2:0] == 3'b000) ? "PASS" : "FAIL");
+        
+        // 测试用例10: 测试4条指令同时处理
+        instructions = {32'h00600063, 32'h000000ef, 32'h0000016f, 32'h00008067};
+        #10;
+        $display("%0t\t%32h\t%012b\t001_010_011_100\t%s", $time, instructions, PD, 
+                 (PD == 12'b001_010_011_100) ? "PASS" : "FAIL");
+        
+        $display("----------------------------------------------------------------");
+        $display("=== 测试完成 ===");
+        
+        // 结束仿真
+        $finish;
+    end
+
+endmodule

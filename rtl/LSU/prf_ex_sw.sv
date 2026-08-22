@@ -1,0 +1,57 @@
+module prf_ex(
+    input logic clk,
+    input logic reset,
+
+    input logic [5:0] rs1_number_prf,
+    input logic [63:0] imm_prf,
+    input logic [5:0] dest_number_prf,
+    input logic [6:0] rob_id_prf,
+    input logic [3:0] lsu_control_prf,
+    input logic reg_write_prf,
+    input logic instr_valid_prf,
+    input logic bru_recovery,
+    input logic [3:0] grant_prf,
+    input logic sb_full,
+    input logic [63:0]rs1_value_prf,
+    input logic [63:0]rs2_value_prf,
+
+    output logic [5:0] rs1_number_ex,
+    output logic [63:0] imm_ex,
+    output logic [5:0] dest_number_ex,
+    output logic [6:0] rob_id_ex,
+    output logic [3:0] lsu_control_ex,
+    output logic reg_write_ex,        // 添加 reg_write_ex 输出
+    output logic [3:0] grant_ex,
+    output logic instr_valid_ex,
+    output logic [63:0]rs1_value_ex,
+    output logic [63:0]rs2_value_ex
+);
+
+    always_ff @(posedge clk) begin
+        if(reset | sb_full | bru_recovery) begin
+            rs1_number_ex <= 6'b000000;
+            imm_ex <= 64'd0;
+            dest_number_ex <= 6'b000000;
+            rob_id_ex <= 7'b0000000;
+            lsu_control_ex <= 4'b0000;      // 修正中文分号
+            reg_write_ex <= 1'b0;           // 添加 reg_write_ex 复位
+            instr_valid_ex <= 1'b0;   
+            grant_ex <= 4'd0;   
+            rs1_value_ex<=64'd0;   
+            rs2_value_ex<=64'd0;  
+        end
+        else begin
+            rs1_number_ex <= rs1_number_prf;
+            imm_ex <= imm_prf;
+            dest_number_ex <= dest_number_prf;  // 修正变量名
+            rob_id_ex <= rob_id_prf;
+            lsu_control_ex <= lsu_control_prf;  // 修正中文分号
+            reg_write_ex <= reg_write_prf;      // 添加 reg_write_ex 赋值
+            instr_valid_ex <= instr_valid_prf; 
+            grant_ex <= grant_prf; 
+            rs1_value_ex<=rs1_value_prf;   
+            rs2_value_ex<=rs2_value_prf;   
+        end
+    end
+    
+endmodule

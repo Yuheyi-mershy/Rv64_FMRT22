@@ -1,0 +1,99 @@
+module top_tb;
+    logic clk;
+    logic reset;
+    
+    // 时钟周期定义
+    parameter CLK_PERIOD = 10ns;
+    
+    // 实例化被测模块
+    top dut (
+        .clk(clk),
+        .reset(reset)
+    );
+    
+    // 时钟生成
+    initial begin
+        clk = 0;
+        forever #(CLK_PERIOD/2) clk = ~clk;
+    end
+    
+
+    
+    // 测试过程
+    initial begin
+        // 初始化信号
+        reset = 1;
+        
+        // ========== 添加 FSDB 波形输出 ==========
+        $display("========================================");
+        $display("开始生成 FSDB 波形文件");
+        $display("========================================");
+        
+        // 设置波形文件名
+        $fsdbDumpfile("top_tb.fsdb");
+        
+        // 设置波形 dump 范围（0 表示所有层级）
+        $fsdbDumpvars(0, top_tb);
+        
+        
+
+        
+        $display("FSDB 文件配置完成: top_tb.fsdb");
+        $display("========================================");
+        $display("开始测试: 初始化地址0为beq指令");
+        $display("========================================");
+        
+        // 等待时钟稳定
+        repeat(2) @(posedge clk);
+        #1;
+        
+        // ========== 初始化Memory_System主存 ==========
+        $display("[%0t] === 通过force初始化Memory_System主存 ===", $time);
+        
+        // 在地址0处设置beq指令
+        force dut.memsys.main_mem_inst.mem_array[0] = {
+                    32'b0000000_00000_00000_000_00000_1100011,  // beq x0, x0, 0
+                    32'b00000000000000000000_00001_1101111,     // jal x1, 0
+                    32'b000000000000_00001_000_00010_1100111,   // jalr x2, x1, 0
+                    32'b00000000000000000000_00000_0010111      // auipc x0, 0
+                };
+        
+        // 初始化页表区域（关键！）
+        force dut.memsys.main_mem_inst.mem_array[4096] = 128'h00001001_00002001_00003001_00008001;
+        force dut.memsys.main_mem_inst.mem_array[8192] = 128'h00010003_00020003_00030003_0000c003;
+        force dut.memsys.main_mem_inst.mem_array[8320] = 128'h00010003_00020003_00030003_0000c003;
+        force dut.memsys.main_mem_inst.mem_array[12288] = 128'h00001007_00002007_00003007_00000407;
+            
+        // 初始化额外的页表项用于不同地址映射
+        force dut.memsys.main_mem_inst.mem_array[4097] = 128'h00005001_00006001_00007001_00008001;
+        force dut.memsys.main_mem_inst.mem_array[8256] = 128'h00050003_00060003_00070003_00010003;
+        force dut.memsys.main_mem_inst.mem_array[16384] = 128'h00005007_00006007_00007007_00008007;
+        force dut.memsys.main_mem_inst.mem_array[16385] = 128'h00005007_00006007_00007007_00008007;
+        force dut.memsys.main_mem_inst.mem_array[16386] = 128'h00005007_00006007_00007007_00002007;
+        
+        $display("  地址0初始化完成: beq x0, x0, 0 (0x00000063)");
+        $display("  ✓ 主存初始化完成");
+        
+        // 释放复位
+        repeat(3) @(posedge clk);
+        reset = 0;
+        $display("[%0t] 复位释放，处理器开始执行", $time);
+        
+        
+        
+        // 运行足够长时间
+        repeat(500) @(posedge clk);
+        
+        $display("========================================");
+        $display("测试完成");
+        $display("========================================");
+        
+        
+        #100;
+        $finish;
+    end
+    
+    
+    
+    
+endmodule  有什么语法问题吗

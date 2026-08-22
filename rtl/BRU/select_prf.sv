@@ -1,0 +1,56 @@
+module select_prf_bru(
+    input logic clk,
+    input logic reset,
+
+    //从SELECT阶段出来的信息
+    input logic [5:0]rs1_number_select,
+    input logic [5:0]rs2_number_select,
+    input logic [5:0]rd_number_select,
+    input logic [6:0]rob_id_select,
+    input logic [4:0]bob_id_select,
+    input logic [2:0]bru_control_select,
+    input logic reg_write_select,
+    input logic [1:0]instr_type_select,
+    input logic instr_valid_select,
+
+    //用于判断分支是否错误的信息
+    input logic bru_recovery,
+
+    //用于输出的信息
+    output logic [5:0]rs1_number_prf,
+    output logic [5:0]rs2_number_prf,
+    output logic [5:0]rd_number_prf,
+    output logic [6:0]rob_id_prf,
+    output logic [4:0]bob_id_prf,
+    output logic [2:0]bru_control_prf,
+    output logic reg_write_prf,
+    output logic [1:0]instr_type_prf,
+    output logic instr_valid_prf
+);
+
+    
+    always_ff @(posedge clk) begin
+        if(reset | bru_recovery) begin
+             rs1_number_prf <= 6'b000000;
+             rs2_number_prf <= 6'b000000;
+             rd_number_prf <= 6'b000000;
+             rob_id_prf <= 7'b000000;
+             bob_id_prf <= 5'd0;
+             bru_control_prf <= 3'b000;  // 修改：中文分号改为英文分号
+             reg_write_prf <= 1'b0;
+             instr_type_prf <= 2'b00;
+             instr_valid_prf <= 1'b0;           
+        end
+        else begin
+             rs1_number_prf <= rs1_number_select;
+             rs2_number_prf <= rs2_number_select;
+             rd_number_prf <= rd_number_select;
+             rob_id_prf <= rob_id_select;
+             bob_id_prf <= bob_id_select;
+             bru_control_prf <= bru_control_select;  // 修改：bru_control_ex -> bru_control_select
+             reg_write_prf <= reg_write_select;
+             instr_type_prf <= instr_type_select;
+             instr_valid_prf <= instr_valid_select;    
+        end
+    end
+endmodule

@@ -1,0 +1,10 @@
+module mux2_bru #(parameter WIDTH = 64) (
+    input  logic [WIDTH-1:0] a,
+    input  logic [WIDTH-1:0] b,
+    input  logic             select,
+    output logic [WIDTH-1:0] c
+);
+
+assign c = select ? b : a;
+
+endmodule

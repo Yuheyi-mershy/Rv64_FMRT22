@@ -1,0 +1,482 @@
+/******************************************************************************
+ * Filename: ROB.sv
+ * Author: FMRT22-HYC
+ * Create date: 2025.12.19
+ * Description: Reorder Buffer for register renaming and recovery
+ * Modify date: 2026.3.9
+ * ***************************************************************************/
+module ROB #(
+    parameter ROB_ENTRY_NUM = 64,       // ROB设计为64个表项的FIFO
+    parameter ROB_IDX_WID   = 6,        // 表项的索引6bits
+    parameter ROB_ID_WID    = 7,        // 1bit翻页位+6bit索引，共7位ROB ID
+    parameter LOGIC_REG_WID = 5,        // 逻辑寄存器宽度（5位，对应32个逻辑寄存器）
+    parameter PHY_REG_WID   = 6         // 物理寄存器宽度（6位，对应64个物理寄存器）
+)(
+    // ============ 时钟和复位 ============
+    input  logic                     clk,
+    input  logic                     reset,
+    
+    // ============ 重命名写入接口 -要求存入ROB的核心表项 ============
+    input  logic                     rob_wr_en_1,        // 指令1写入使能
+    input  logic                     rob_rd_en_1,        // 指令1目的寄存器有效(Rd_en)
+    input  logic [PHY_REG_WID-1:0]   rob_rd_new_1,       // 指令1新物理寄存器(Rd_new)
+    input  logic [PHY_REG_WID-1:0]   rob_rd_old_1,       // 指令1旧物理寄存器(Rd_old)
+    input  logic [LOGIC_REG_WID-1:0] rob_rd_logic_1,     // 指令1逻辑寄存器(Rd_logic)
+    input  logic                     rob_memwrite_1,     // 指令1存储指令标志(memwrite)
+    
+    input  logic                     rob_wr_en_2,        // 指令2写入使能
+    input  logic                     rob_rd_en_2,        // 指令2目的寄存器有效(Rd_en)
+    input  logic [PHY_REG_WID-1:0]   rob_rd_new_2,       // 指令2新物理寄存器(Rd_new)
+    input  logic [PHY_REG_WID-1:0]   rob_rd_old_2,       // 指令2旧物理寄存器(Rd_old)
+    input  logic [LOGIC_REG_WID-1:0] rob_rd_logic_2,     // 指令2逻辑寄存器(Rd_logic)
+    input  logic                     rob_memwrite_2,     // 指令2存储指令标志(memwrite)
+    
+    // ============ 执行完成接口 -4个功能部件5个完成信号 ============
+    input  logic                     complete_en_alu,   // ALU完成
+    input  logic [ROB_ID_WID-1:0]    complete_id_alu,   // ALU完成的ROB ID（7位）
+    
+    input  logic                     complete_en_bru,   // BRU完成
+    input  logic [ROB_ID_WID-1:0]    complete_id_bru,   // BRU完成的ROB ID
+    
+    input  logic                     complete_en_lsu_load,    // LSU load完成
+    input  logic [ROB_ID_WID-1:0]    complete_id_lsu_load,    // LSU load完成的ROB ID
+
+    input  logic                     complete_en_lsu_store,    // LSU store完成
+    input  logic [ROB_ID_WID-1:0]    complete_id_lsu_store,    // LSU store完成的ROB ID
+
+    input  logic                     complete_en_mdu_mul,// MDU乘法完成 
+    input  logic [ROB_ID_WID-1:0]    complete_id_mdu_mul,// MDU乘法ROB ID
+    
+    input  logic                     complete_en_mdu_div,// MDU除法完成
+    input  logic [ROB_ID_WID-1:0]    complete_id_mdu_div,// MDU除法ROB ID
+    
+
+    // ============ 分支恢复接口 -WALK方式恢复，BRU执行后触发 ============
+    input  logic                     recover_en,         // 恢复使能（分支预测失败，持续高直到complete）
+    input  logic [ROB_ID_WID-1:0]    recover_id,         // 需要恢复的ROB ID（7位）
+    
+    // ============ 退休接口 - 头指针开始2条都完成则一起退休 ============
+    output logic                     retire_en_1,        // 退休指令1使能
+    output logic [PHY_REG_WID-1:0]   retire_rd_old_1,    // 退休指令1旧物理寄存器-送free_list
+    output logic                     retire_rd_en_1,     // 退休指令1目的寄存器有效
+    
+    output logic                     retire_en_2,        // 退休指令2使能
+    output logic [PHY_REG_WID-1:0]   retire_rd_old_2,    // 退休指令2旧物理寄存器-送free_list
+    output logic                     retire_rd_en_2,     // 退休指令2目的寄存器有效
+
+    output logic [1:0]               retire_memwrite_cnt,// 退休的指令有几条要写存储器
+    
+    // ============ 恢复输出接口 -每次从队尾恢复2条，用于sRAT/free_list/PRF恢复 ============
+    output logic                     recover_valid_1,    // 恢复操作1有效
+    output logic                     recover_rd_en_1,    // 恢复指令1目的寄存器有效
+    output logic [LOGIC_REG_WID-1:0] recover_rd_logic_1, // 恢复指令1逻辑寄存器-恢复sRAT
+    output logic [PHY_REG_WID-1:0]   recover_rd_old_1,   // 恢复指令1旧物理寄存器-恢复sRAT
+    output logic [PHY_REG_WID-1:0]   recover_rd_new_1,   // 恢复指令1新物理寄存器-恢复free_list/PRF
+    
+    output logic                     recover_valid_2,    // 恢复操作2有效
+    output logic                     recover_rd_en_2,    // 恢复指令2目的寄存器有效
+    output logic [LOGIC_REG_WID-1:0] recover_rd_logic_2, // 恢复指令2逻辑寄存器-恢复sRAT
+    output logic [PHY_REG_WID-1:0]   recover_rd_old_2,   // 恢复指令2旧物理寄存器-恢复sRAT
+    output logic [PHY_REG_WID-1:0]   recover_rd_new_2,   // 恢复指令2新物理寄存器-恢复free_list/PRF
+    
+    output logic                     recover_complete,   // 恢复完成信号 
+    
+    // ============ 状态接口 - ROB满空判断规则 ============
+    output logic                     rob_full,           // ROB满标志
+    output logic                     rob_empty,           // ROB空标志
+    output logic [ROB_ID_WID-1:0]    tail_ptr
+);
+
+    // ========================================================
+    // 内部定义 -ROB表项字段 = Rd_en + Rd_new + Rd_old + Rd_logic + complete + memwrite
+    // ========================================================
+    typedef struct packed {
+        logic                     valid;      // 条目有效标志
+        logic                     rd_en;      // 目的寄存器有效(1bit)
+        logic [PHY_REG_WID-1:0]   rd_new;     // 新物理寄存器(6bits)
+        logic [PHY_REG_WID-1:0]   rd_old;     // 旧物理寄存器(6bits)
+        logic [LOGIC_REG_WID-1:0] rd_logic;   // 逻辑寄存器号(5bits)
+        logic                     memwrite;   // 存储指令标志(1bit)
+        logic                     complete;   // 执行完成标志(1bit)
+    } rob_entry_t;
+
+    // ROB存储阵列 -64个表项的FIFO
+    rob_entry_t rob_array [ROB_ENTRY_NUM-1:0];
+
+    // 内部指针 -7位（6位索引+1位翻页位）
+    logic [ROB_ID_WID-1:0] head_ptr;      // 头指针（最早未退休，退休操作）
+    
+
+    // 退休相关信号 -是否是store类型的指令
+    logic                  retire_memwrite_1;  // 退休指令1是否要写存储器
+    logic                  retire_memwrite_2;  // 退休指令2是否要写存储器
+
+    // 恢复相关信号 -WALK方式恢复，每次从队尾恢复2条
+    logic                  recover_init_done;   // 恢复指针初始化完成标志（0=未初始化，1=已初始化）
+    logic [ROB_ID_WID-1:0] recover_ptr;         // 当前恢复指针（从tail_ptr-1开始）
+    logic [1:0] recover_step;                   // 恢复步数（0/1/2，每次最多2条）
+
+    // 辅助指针 - 头/尾指针+1/+2，用于2条并行操作
+    logic [ROB_ID_WID-1:0] head_ptr_plus1; // 头指针+1
+    logic [ROB_ID_WID-1:0] head_ptr_plus2; // 头指针+2
+    logic [ROB_ID_WID-1:0] tail_ptr_plus1; // 尾指针+1
+    logic [ROB_ID_WID-1:0] tail_ptr_minus1;// 尾指针-1（恢复起始位置）
+    logic [ROB_ID_WID-1:0] tail_ptr_plus2; // 尾指针+2
+
+    // 单周期操作计数 -每周期最多写入/退休/恢复2条
+    logic [1:0] write_cnt;    // 单周期写入条数(0/1/2)
+    logic [1:0] retire_cnt;   // 单周期退休条数(0/1/2)
+    logic [6:0] free_cnt;     // 单周期空闲表项数（用于判断ROB满）
+
+    // ========================================================
+    // 组合逻辑部分
+    // ========================================================
+    // 辅助指针计算：直接加减1/2，贴合7位ROB ID（6位索引+1位翻页）
+    always_comb begin
+        // 头指针+1：直接7位加法，自然溢出
+        head_ptr_plus1 = head_ptr + 1'b1;
+        
+        // 头指针+2：直接7位加法
+        head_ptr_plus2 = head_ptr + 2'd2;
+        
+        // 尾指针+1
+        tail_ptr_plus1 = tail_ptr + 1'b1;
+        
+        // 尾指针-1：直接7位减法，自然回绕
+        tail_ptr_minus1 = tail_ptr - 1'b1;
+        
+        // 尾指针+2
+        tail_ptr_plus2 = tail_ptr + 2'd2;
+    end
+
+    // 计算单周期空闲表项数 - ROB满判断规则：
+    // 1. 重命名送2条指令时，ROB只剩1个表项 → 满；2. 重命名送1条指令时，ROB无剩余表项 → 满
+    always_comb begin
+        logic [ROB_IDX_WID:0] total_entry = ROB_ENTRY_NUM;
+        logic [ROB_IDX_WID:0] used_entry;
+        // 计算已使用表项数：翻页位一致→尾-头；不一致→总项数-(头-尾)
+        if (head_ptr[ROB_ID_WID-1] == tail_ptr[ROB_ID_WID-1]) begin
+            used_entry = tail_ptr[ROB_IDX_WID-1:0] - head_ptr[ROB_IDX_WID-1:0];
+        end else begin
+            used_entry = total_entry - (head_ptr[ROB_IDX_WID-1:0] - tail_ptr[ROB_IDX_WID-1:0]);
+        end
+        free_cnt = total_entry - used_entry; // 空闲表项数
+    end
+
+    // ROB满/空标志
+    always_comb begin
+        rob_empty = (head_ptr == tail_ptr) && !recover_en; // 空：头=尾且无恢复触发
+        // 满：送2条指令时空闲<2 或 送1条指令时空闲<1，且无恢复触发
+        if (!recover_en && free_cnt != 7'd0) begin
+            if (rob_wr_en_1 && rob_wr_en_2) begin
+                rob_full = (free_cnt < 7'd2);  // 想写2条，必须至少有2个空位
+            end else if (rob_wr_en_1) begin
+                rob_full = (free_cnt == 7'd0);  // 想写1条，必须至少有1个空位
+            end else begin
+                rob_full = 1'b0;                // 不想写，肯定不满
+            end 
+        end else if (free_cnt == 7'd0) begin
+                rob_full = 1'b1;
+        end
+    end
+/*
+// ============ 修复后的空闲表项数计算逻辑 ============
+always_comb begin
+    logic [ROB_IDX_WID:0] total_entry = ROB_ENTRY_NUM;
+    logic [ROB_IDX_WID:0] used_entry;
+    
+    // 正确计算已使用表项数（处理翻页位）
+    if (head_ptr[ROB_ID_WID-1] == tail_ptr[ROB_ID_WID-1]) begin
+        // 翻页位相同：tail - head（直接相减）
+        used_entry = tail_ptr[ROB_IDX_WID-1:0] - head_ptr[ROB_IDX_WID-1:0];
+    end else begin
+        // 翻页位不同：总容量 - (head - tail)
+        used_entry = total_entry - (head_ptr[ROB_IDX_WID-1:0] - tail_ptr[ROB_IDX_WID-1:0]);
+    end
+    
+    // 空闲数 = 总容量 - 已使用数（限制最大值为总容量）
+    free_cnt = (total_entry - used_entry) % (total_entry + 1);
+end
+
+// ============ 修复后的ROB满/空判断逻辑 ============
+// 方案1：将变量声明移到always_comb块外（推荐，兼容性最好）
+logic [1:0] req_write_cnt;  // 移到块外声明
+
+always_comb begin
+    // 空判断：头指针==尾指针 且 无恢复触发
+    rob_empty = (head_ptr == tail_ptr) && !recover_en;
+    
+    // 计算实际要写入的指令数（0/1/2）
+    req_write_cnt = {1'b0, rob_wr_en_1} + {1'b0, rob_wr_en_2};
+    
+    // 满判断：
+    // 1. 核心条件：空闲数 < 要写入的指令数
+    // 2. 兜底条件：空闲数 == 0 （无论是否写入，都判定为满）
+    if (!recover_en) begin
+        rob_full = (free_cnt < req_write_cnt) || (free_cnt == 7'd0);
+    end else begin
+        rob_full = 1'b0;
+    end
+end
+*/
+    // 单周期写入计数 - 无恢复触发、非满时，按写入使能计数（0/1/2）
+    always_comb begin
+        write_cnt = 2'b00;
+        if (!recover_en && !rob_full) begin
+            if (rob_wr_en_1 && rob_wr_en_2) write_cnt = 2'b10;
+            else if (rob_wr_en_1 && (!rob_wr_en_2)) write_cnt = 2'b01;
+        end
+    end
+
+    // 退休逻辑 - 头指针开始2条都完成则一起退休，否则仅头指针1条（若完成）
+    always_comb begin
+        retire_en_1 = 1'b0;
+        retire_en_2 = 1'b0;
+        retire_rd_old_1 = '0;
+        retire_rd_en_1  = '0;
+        retire_memwrite_1 = '0;
+        retire_rd_old_2 = '0;
+        retire_rd_en_2  = '0;
+        retire_memwrite_2 = '0;
+        retire_cnt      = 2'b00;
+
+        // 非恢复触发、非空时执行退休判断
+        if (!recover_en && !rob_empty) begin
+            // 第一条退休：头指针条目有效且完成
+            if (rob_array[head_ptr[ROB_IDX_WID-1:0]].valid && 
+                rob_array[head_ptr[ROB_IDX_WID-1:0]].complete &&
+                    head_ptr != tail_ptr) begin
+                retire_en_1      = 1'b1;
+                retire_rd_old_1  = rob_array[head_ptr[ROB_IDX_WID-1:0]].rd_old;
+                retire_rd_en_1   = rob_array[head_ptr[ROB_IDX_WID-1:0]].rd_en;
+                retire_memwrite_1= rob_array[head_ptr[ROB_IDX_WID-1:0]].memwrite;
+                retire_cnt       = 2'b01;
+		//retire_memwrite_cnt = '0;
+
+                // 第二条退休：头+1条目有效且完成（2条都完成则一起退休）
+                if (rob_array[head_ptr_plus1[ROB_IDX_WID-1:0]].valid && 
+                    rob_array[head_ptr_plus1[ROB_IDX_WID-1:0]].complete &&
+                    head_ptr_plus1 != tail_ptr) begin
+                    retire_en_2      = 1'b1;
+                    retire_rd_old_2  = rob_array[head_ptr_plus1[ROB_IDX_WID-1:0]].rd_old;
+                    retire_rd_en_2   = rob_array[head_ptr_plus1[ROB_IDX_WID-1:0]].rd_en;
+                    retire_memwrite_2= rob_array[head_ptr_plus1[ROB_IDX_WID-1:0]].memwrite; 
+                    retire_cnt       = 2'b10;
+                end
+            end
+            // memwrite计数逻辑：与/异或判断
+            if (retire_memwrite_1 & retire_memwrite_2) begin    
+                retire_memwrite_cnt = 2'b11; //这里的11不代表有3条指令要写存储器，只有两条，写成11是由于SDB要求
+            end else if (retire_memwrite_1 ^ retire_memwrite_2) begin
+                retire_memwrite_cnt = 2'b01;
+            end else begin
+                retire_memwrite_cnt = 2'b00;
+            end
+        end
+    end
+
+    // ============ 恢复输出逻辑 -WALK方式，每次从队尾恢复2条，直到恢复到错误ROB ID ============
+    always_comb begin
+        recover_valid_1    = 1'b0;
+        recover_valid_2    = 1'b0;
+        recover_rd_en_1    = 1'b0;
+        recover_rd_logic_1 = '0;
+        recover_rd_old_1   = '0;
+        recover_rd_new_1   = '0;
+        recover_rd_en_2    = 1'b0;
+        recover_rd_logic_2 = '0;
+        recover_rd_old_2   = '0;
+        recover_rd_new_2   = '0;
+        recover_complete   = 1'b0;
+        recover_step       = 2'b00;
+
+        // 恢复触发时执行恢复逻辑
+        if (recover_en && recover_init_done) begin
+            // 第一条恢复：当前恢复指针条目有效
+            if (rob_array[recover_ptr[ROB_IDX_WID-1:0]].valid) begin
+                recover_valid_1    = 1'b1;
+                recover_rd_en_1    = rob_array[recover_ptr[ROB_IDX_WID-1:0]].rd_en;
+                recover_rd_logic_1 = rob_array[recover_ptr[ROB_IDX_WID-1:0]].rd_logic;
+                recover_rd_old_1   = rob_array[recover_ptr[ROB_IDX_WID-1:0]].rd_old;
+                recover_rd_new_1   = rob_array[recover_ptr[ROB_IDX_WID-1:0]].rd_new;
+                recover_step       = 2'b01;
+
+                // 检查是否到达恢复终点：当前指针=错误ROB ID → 恢复完成
+                if (recover_ptr == recover_id) begin
+                    recover_complete = 1'b1;
+                    recover_step     = 2'b00; // 无需更新指针
+                end else begin
+                    // 第二条恢复：恢复指针-1条目有效（每次恢复2条）
+                    logic [ROB_ID_WID-1:0] recover_ptr_minus1;
+                    // 直接7位无符号减法，自然回绕
+                    recover_ptr_minus1 = recover_ptr - 1'b1;
+
+                    // 第二条指令是目标ID时的逻辑
+                    if (recover_ptr_minus1 == recover_id) begin
+                        // 第二条指令就是目标ID：仅恢复该指令，标记完成，指针不移动
+                        if (rob_array[recover_ptr_minus1[ROB_IDX_WID-1:0]].valid) begin
+                            recover_valid_2    = 1'b1;
+                            recover_rd_en_2    = rob_array[recover_ptr_minus1[ROB_IDX_WID-1:0]].rd_en;
+                            recover_rd_logic_2 = rob_array[recover_ptr_minus1[ROB_IDX_WID-1:0]].rd_logic;
+                            recover_rd_old_2   = rob_array[recover_ptr_minus1[ROB_IDX_WID-1:0]].rd_old;
+                            recover_rd_new_2   = rob_array[recover_ptr_minus1[ROB_IDX_WID-1:0]].rd_new;
+                        end
+                        recover_complete = 1'b1; // 恢复完成
+                        recover_step     = 2'b00; // 指针不移动
+                    end else if (rob_array[recover_ptr_minus1[ROB_IDX_WID-1:0]].valid) begin
+                        // 第二条指令不是目标ID：正常恢复，指针减2
+                        recover_valid_2    = 1'b1;
+                        recover_rd_en_2    = rob_array[recover_ptr_minus1[ROB_IDX_WID-1:0]].rd_en;
+                        recover_rd_logic_2 = rob_array[recover_ptr_minus1[ROB_IDX_WID-1:0]].rd_logic;
+                        recover_rd_old_2   = rob_array[recover_ptr_minus1[ROB_IDX_WID-1:0]].rd_old;
+                        recover_rd_new_2   = rob_array[recover_ptr_minus1[ROB_IDX_WID-1:0]].rd_new;
+                        recover_step       = 2'b10;
+                    end
+                end
+            end else begin
+                // 当前指针条目无效 → 恢复完成
+                recover_complete = 1'b1;
+            end
+        end
+    end
+
+    // ========================================================
+    // 时序逻辑部分 写入/退休/恢复/完成更新规则
+    // ========================================================
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            // 复位：指针清0，ROB阵列全部无效
+            head_ptr          <= '0;
+            tail_ptr          <= '0;
+            recover_init_done <= 1'b0;
+            recover_ptr       <= '0;
+            for (int i = 0; i < ROB_ENTRY_NUM; i++) begin
+                rob_array[i].valid    <= 1'b0;
+                rob_array[i].rd_en    <= 1'b0;
+                rob_array[i].rd_new   <= '0;
+                rob_array[i].rd_old   <= '0;
+                rob_array[i].rd_logic <= '0;
+                rob_array[i].memwrite <= 1'b0;
+                rob_array[i].complete <= 1'b0; 
+            end
+        end else begin
+            // ============ 1. 分支恢复触发与执行 ============
+            if (recover_en) begin
+                // 触发恢复：恢复指针未初始化时置为尾指针-1
+                if (!recover_init_done) begin
+                    recover_ptr        <= tail_ptr_minus1;
+                    recover_init_done  <= 1'b1;
+                end 
+                // 恢复完成处理
+                else if (recover_complete) begin
+                    // 恢复完成：更新尾指针到recover_id+1
+                    tail_ptr <= recover_id + 1'b1;
+                    recover_init_done <= 1'b0;
+                    recover_ptr       <= '0;
+                end 
+                // 未完成时移动恢复指针
+                else begin 
+                    case (recover_step)
+                        2'b10:  recover_ptr <= recover_ptr - 2'd2;
+                        2'b01:  recover_ptr <= recover_ptr - 1'b1;
+                        default: ;
+                    endcase
+                end
+            end else begin
+                // 无恢复触发时：清零恢复相关状态
+                recover_ptr       <= '0;
+                recover_init_done <= 1'b0;
+            end
+            
+            // ============ 2. ROB写入逻辑 ============
+            // 写入操作：只有在非恢复且非满时才允许写入
+            if (!recover_en && !rob_full) begin 
+                if (rob_wr_en_1) begin
+                    // 写入指令1
+                    rob_array[tail_ptr[ROB_IDX_WID-1:0]].valid    <= 1'b1;
+                    rob_array[tail_ptr[ROB_IDX_WID-1:0]].rd_en    <= rob_rd_en_1;
+                    rob_array[tail_ptr[ROB_IDX_WID-1:0]].rd_new   <= rob_rd_new_1;
+                    rob_array[tail_ptr[ROB_IDX_WID-1:0]].rd_old   <= rob_rd_old_1;
+                    rob_array[tail_ptr[ROB_IDX_WID-1:0]].rd_logic <= rob_rd_logic_1;
+                    rob_array[tail_ptr[ROB_IDX_WID-1:0]].memwrite <= rob_memwrite_1;
+                    rob_array[tail_ptr[ROB_IDX_WID-1:0]].complete <= 1'b0;
+
+                    // 如果指令2也有效，写入指令2
+                    if (rob_wr_en_2) begin
+                        rob_array[tail_ptr_plus1[ROB_IDX_WID-1:0]].valid    <= 1'b1;
+                        rob_array[tail_ptr_plus1[ROB_IDX_WID-1:0]].rd_en    <= rob_rd_en_2;
+                        rob_array[tail_ptr_plus1[ROB_IDX_WID-1:0]].rd_new   <= rob_rd_new_2;
+                        rob_array[tail_ptr_plus1[ROB_IDX_WID-1:0]].rd_old   <= rob_rd_old_2;
+                        rob_array[tail_ptr_plus1[ROB_IDX_WID-1:0]].rd_logic <= rob_rd_logic_2;
+                        rob_array[tail_ptr_plus1[ROB_IDX_WID-1:0]].memwrite <= rob_memwrite_2;
+                        rob_array[tail_ptr_plus1[ROB_IDX_WID-1:0]].complete <= 1'b0;        
+                    end
+                end
+            end
+
+            // ============ 3. 尾指针更新 - 关键修复 ============
+            // 只有在非恢复且非满时才更新尾指针
+            if (!recover_en && !rob_full) begin
+                if (rob_wr_en_1 && rob_wr_en_2) begin
+                    tail_ptr <= tail_ptr + 2'd2;
+                end else if (rob_wr_en_1) begin
+                    tail_ptr <= tail_ptr + 1'b1;
+                end
+            end
+            // 恢复期间或ROB满时，tail_ptr保持不变
+
+            // ============ 4. 头指针更新 ============
+            // 头指针更新：只有在非恢复时才更新
+            if (!recover_en) begin
+                if (retire_en_1 && retire_en_2) begin
+                    head_ptr <= head_ptr + 2'd2;
+                end else if (retire_en_1) begin
+                    head_ptr <= head_ptr + 1'b1;
+                end
+            end
+
+            // ============ 5. 执行完成标志更新 ============
+            // 完成标志：只有在非恢复时才更新
+            if (!recover_en) begin
+                if (complete_en_alu && rob_array[complete_id_alu[ROB_IDX_WID-1:0]].valid)    
+                    rob_array[complete_id_alu[ROB_IDX_WID-1:0]].complete <= 1'b1;
+                if (complete_en_bru && rob_array[complete_id_bru[ROB_IDX_WID-1:0]].valid)    
+                    rob_array[complete_id_bru[ROB_IDX_WID-1:0]].complete <= 1'b1;
+                if (complete_en_lsu_load && rob_array[complete_id_lsu_load[ROB_IDX_WID-1:0]].valid)    
+                    rob_array[complete_id_lsu_load[ROB_IDX_WID-1:0]].complete <= 1'b1;
+                if (complete_en_lsu_store && rob_array[complete_id_lsu_store[ROB_IDX_WID-1:0]].valid)    
+                    rob_array[complete_id_lsu_store[ROB_IDX_WID-1:0]].complete <= 1'b1;
+                if (complete_en_mdu_mul && rob_array[complete_id_mdu_mul[ROB_IDX_WID-1:0]].valid)
+                    rob_array[complete_id_mdu_mul[ROB_IDX_WID-1:0]].complete <= 1'b1;
+                if (complete_en_mdu_div && rob_array[complete_id_mdu_div[ROB_IDX_WID-1:0]].valid)
+                    rob_array[complete_id_mdu_div[ROB_IDX_WID-1:0]].complete <= 1'b1;
+            end
+
+            // ============ 6. 退休条目清除 ============
+            // 清除退休条目：只有在非恢复时才执行
+            if (!recover_en) begin
+                if (retire_en_1) begin
+                    rob_array[head_ptr[ROB_IDX_WID-1:0]] <= '0;
+                    if (retire_en_2) begin
+                        rob_array[head_ptr_plus1[ROB_IDX_WID-1:0]] <= '0;
+                    end
+                end
+            end
+
+            // ============ 7. 恢复条目清除 ============
+            // 清除恢复的条目：只有在恢复期间且未完成时才执行
+            if (recover_en && !recover_complete) begin
+                logic [ROB_ID_WID-1:0] recover_ptr_minus1;  // 临时变量
+                
+                if (recover_valid_1) begin
+                    rob_array[recover_ptr[ROB_IDX_WID-1:0]] <= '0;
+                end
+                if (recover_valid_2) begin
+                    recover_ptr_minus1 = recover_ptr - 1'b1;
+                    rob_array[recover_ptr_minus1[ROB_IDX_WID-1:0]] <= '0;
+                end
+            end
+        end
+    end
+
+endmodule

@@ -1,0 +1,39 @@
+module  lsu_equal(
+  input logic load_complete,
+  input logic store_complete,
+  input logic [4:0]grant_load,
+  input logic [4:0]grant_store,
+  output logic com1,  //作用给load
+  output logic com2   //作用给store
+);
+ always_comb  begin
+    if(load_complete|store_complete)  begin
+        if((~grant_load[4])&(~grant_store[4])) begin
+           com1=1'd0;
+           com2=1'd0;
+        end
+        else  if((~grant_load[4])&(grant_store[4]))  begin
+          com1=1'd1;
+          com2=1'd0;
+        end
+        else if((grant_load[4])&(~grant_store[4]))  begin
+          com1=1'd0;
+          com2=1'd1;
+        end
+        else    begin
+            if((grant_store[2:0])>(grant_load[2:0])) begin
+              com1=1'd0;
+              com2=1'd1;
+            end
+            else begin
+               com1=1'd1;
+               com2=1'd0;
+            end
+        end
+    end
+    else  begin
+       com1=1'd0;
+       com2=1'd0;
+    end
+end
+endmodule

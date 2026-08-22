@@ -1,0 +1,114 @@
+
+
+module test_SATP();  
+
+    // 时钟信号
+    logic clk;
+    logic reset;
+    logic write_en;
+    logic [63:0] write_data;
+    logic [19:0] root_ppn;
+
+    // 实例化被测试模块 
+    SATP u_SATP (
+        .clk(clk),
+        .reset(reset),
+        .write_en(write_en),
+        .write_data(write_data),
+        .root_ppn(root_ppn)
+    );
+
+    // 生成时钟（周期 10ns）
+    initial begin
+        clk = 0;
+        forever #5 clk = ~clk;
+    end
+
+    // 测试用例
+    initial begin
+        // 初始化信号
+        reset = 1;
+        write_en = 0;
+        write_data = 64'h0;
+
+        // 开始记录波形到 fsdb 文件
+        $fsdbDumpfile("SATP.fsdb");
+        $fsdbDumpvars(0, test_SATP);  // 这里改为 test_SATP
+        $fsdbDumpMDA();             // 如果有多维数组可以启用
+
+        // 复位过程
+        #20 reset = 0;
+
+        // 测试1：复位后检查默认值（root_ppn 应为 0）
+        #10;
+        if (root_ppn !== 20'h0) begin
+            $display("错误: 复位后 root_ppn 应为 0，实际为 %h", root_ppn);
+            $finish;
+        end else begin
+            $display("测试1 通过: 复位后 root_ppn = %h", root_ppn);
+        end
+
+        // 测试2：写入 PPN（使用 satp_reg[43:24]）
+        #10 write_en = 1;
+        write_data = 64'h0000_00FF_0000_0000;  // 第 43:24 位为 FF_0000
+        
+        #10 write_en = 0;
+        write_data = 64'h0;
+
+        // 检查写入后的 root_ppn
+        #10;
+        if (root_ppn !== 20'h0_FF00) begin  // 注意: [43:24] 位，20位
+            $display("错误: 写入后 root_ppn 应为 FF_000，实际为 %h", root_ppn);
+            $finish;
+        end else begin
+            $display("测试2 通过: 写入后 root_ppn = %h", root_ppn);
+        end
+
+        // 测试3：写入时不使能 write_en（应保持原值）
+        #10 write_en = 0;
+        write_data = 64'h0000_00AA_0000;  // 尝试写入 AA_0000
+
+        #10;
+        if (root_ppn !== 20'hFF_000) begin  // 应保持 FF_000
+            $display("错误: 无写使能时 root_ppn 应保持不变，实际为 %h", root_ppn);
+            $finish;
+        end else begin
+            $display("测试3 通过: 无写使能时 root_ppn 保持 = %h", root_ppn);
+        end
+
+        // 测试4：再次写入新值
+        #10 write_en = 1;
+        write_data = 64'h0000_0011_1100;  // [43:24] = 11_1100
+        
+        #10 write_en = 0;
+        
+        #10;
+        if (root_ppn !== 20'h11_110) begin  // 注意: 20位值
+            $display("错误: 第二次写入后 root_ppn 应为 11_110，实际为 %h", root_ppn);
+            $finish;
+        end else begin
+            $display("测试4 通过: 第二次写入后 root_ppn = %h", root_ppn);
+        end
+
+        // 测试5：复位后是否恢复
+        #10 reset = 1;
+        #10 reset = 0;
+        #10;
+        if (root_ppn !== 20'h0) begin
+            $display("错误: 复位后 root_ppn 应为 0，实际为 %h", root_ppn);
+            $finish;
+        end else begin
+            $display("测试5 通过: 复位后 root_ppn 恢复为 = %h", root_ppn);
+        end
+
+        $display("所有测试通过！");
+        #100 $finish;
+    end
+
+    // 监视信号变化
+    initial begin
+        $monitor("时间=%0t: reset=%b, write_en=%b, write_data=%h, root_ppn=%h",
+                 $time, reset, write_en, write_data, root_ppn);
+    end
+
+endmodule

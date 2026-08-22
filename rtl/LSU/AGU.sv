@@ -1,0 +1,56 @@
+module sotre_agu(  // 保留原名称，但建议改为 agu
+
+    // 用于计算地址的立即数
+    input logic [63:0] imm,
+    input logic instr_valid_ex,  // 添加 input 声明
+    
+    // 用以转发的内容
+    input logic [63:0] rs1_value_ex,  
+    input logic [63:0] rs2_value_ex,
+    input logic [63:0] alu_value_wb,
+    input logic [63:0] bru_value_wb,
+    input logic [63:0] mul_value_wb,
+    input logic [63:0] div_value_wb,
+    input logic [63:0] lsu_value_wb,
+    input logic [2:0] forward1,
+    input logic [2:0] forward2,
+
+    // 用于输出
+    output logic complete_ex,
+    output logic [63:0]src2,
+    output logic [63:0] adr_value_ex
+);
+
+    // 内部信号
+    logic [63:0] src1;
+    
+    // 数据转发
+    mux6_lsu #(64) SRC1(
+        .a0(rs1_value_ex),
+        .a1(alu_value_wb),
+        .a2(bru_value_wb),
+        .a3(mul_value_wb),
+        .a4(div_value_wb),
+        .a5(lsu_value_wb),
+        .forward(forward1),
+        .b(src1)
+    );
+    // 数据转发
+    mux6_lsu #(64) SRC2(
+        .a0(rs2_value_ex),
+        .a1(alu_value_wb),
+        .a2(bru_value_wb),
+        .a3(mul_value_wb),
+        .a4(div_value_wb),
+        .a5(lsu_value_wb),
+        .forward(forward2),
+        .b(src2)
+    );
+ 
+    
+    // 地址计算
+    assign adr_value_ex = imm + src1;
+    assign complete_ex = instr_valid_ex;
+    
+endmodule
+

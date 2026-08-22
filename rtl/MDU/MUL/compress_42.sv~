@@ -1,0 +1,36 @@
+module compress_42_128_bit(
+    input logic [127:0]pp1,
+    input logic [127:0]pp2,
+    input logic [127:0]pp3,
+    input logic [127:0]pp4,
+    output logic [127:0]sum,
+    output logic [127:0]carry
+);
+  
+     logic [127:0]shel_cout;
+     logic [127:0]shel_carry;
+     logic [127:0]cout;
+     //cout的选择信号
+     //carry的选择信号
+     assign shel_cout=pp1^pp2;
+     assign shel_carry=(pp1^pp2)^(pp3^pp4);
+     
+    generate
+        for (genvar i = 0; i < 128; i++) begin 
+        // 实例化128个4：2压缩器模块
+        base_unit_42 compress_1_bit (
+            .a(pp1[i]),
+            .b(pp2[i]),
+            .c(pp3[i]),
+            .d(pp4[i]),
+            .shel_carry(shel_carry[i]),
+            .shel_cout(shel_cout[i]),
+            .cin((i==0)?1'b0:cout[i-1]),
+            .sum(sum[i]),
+            .carry(carry[i]),
+            .cout(cout[i])
+        );  
+        end
+    endgenerate
+endmodule
+

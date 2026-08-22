@@ -1,0 +1,66 @@
+module prf_ex1(
+    input  logic        clk,
+    input  logic        reset,
+    input  logic [3:0]  mdu_control_prf,
+    input  logic        reg_write_prf,
+    input  logic [5:0]  rs1_number_prf,
+    input  logic [5:0]  rs2_number_prf,
+    input  logic [5:0]  rd_number_prf,
+    input  logic [63:0] prf_rs1_value,
+    input  logic [63:0] prf_rs2_value,
+    input  logic        bru_recovery,
+    input  logic [6:0]  bru_rob_id,
+    input  logic [6:0]  rob_id_prf,
+    input  logic        instr_valid_prf,
+    
+    output logic [5:0]  rs1_number_ex1,
+    output logic [5:0]  rs2_number_ex1,
+    output logic [5:0]  rd_number_ex1,
+    output logic [63:0] ex1_rs1_value,
+    output logic [63:0] ex1_rs2_value,
+    output logic [6:0]  rob_id_ex1,
+    output logic        reg_write_ex1,
+    output logic [3:0]  mdu_control_ex1,
+    output logic        instr_valid_ex1,
+    output logic [6:0]  bus_mul_wake
+);   
+    
+    logic flush, stall;
+    
+    brurecovery bru_re(
+        .bru_recovery(bru_recovery),
+        .bru_rob_id(bru_rob_id),
+        .rob_id(rob_id_prf),
+        .flush(flush),
+        .stall(stall)
+    );
+    
+    always_ff @(posedge clk) begin
+        if (reset || flush || mdu_control_prf[3]) begin
+            rs1_number_ex1  <= 6'd0;
+            rs2_number_ex1  <= 6'd0;
+            rd_number_ex1   <= 6'd0;
+            ex1_rs1_value   <= 64'd0;
+            ex1_rs2_value   <= 64'd0;
+            rob_id_ex1      <= 7'd0;
+            reg_write_ex1   <= 1'd0;
+            mdu_control_ex1 <= 4'd0;
+            instr_valid_ex1 <= 1'd0;
+            bus_mul_wake    <= 7'd0;
+        end
+        else if (~stall) begin
+            rs1_number_ex1  <= rs1_number_prf;
+            rs2_number_ex1  <= rs2_number_prf;
+            rd_number_ex1   <= rd_number_prf;
+            ex1_rs1_value   <= prf_rs1_value;
+            ex1_rs2_value   <= prf_rs2_value;  
+            rob_id_ex1      <= rob_id_prf;
+            reg_write_ex1   <= reg_write_prf;
+            mdu_control_ex1 <= mdu_control_prf;
+            instr_valid_ex1 <= instr_valid_prf;
+            
+            bus_mul_wake <= instr_valid_prf ? {1'b1, rd_number_prf} : 7'd0;
+        end
+    end
+    
+endmodule

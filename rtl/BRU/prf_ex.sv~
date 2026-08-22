@@ -1,0 +1,119 @@
+module prf_ex(
+    input logic  clk,
+    input logic  reset,
+    
+    //用于恢复错误路径上的
+    input logic bru_recovery,
+
+    //来自于SELECT阶段的
+    input logic [5:0]rs1_number_prf,
+    input logic [5:0]rs2_number_prf,
+    input logic [5:0]rd_number_prf,
+    input logic [6:0]rob_id_prf,
+    input logic [4:0]bob_id_prf,
+    input logic [2:0]bru_control_prf,
+    input logic reg_write_prf,
+    input logic [1:0]instr_type_prf,
+    input logic instr_valid_prf,
+    
+    //来自于BOB
+    input logic [7:0]GHR_value_prf,
+    input logic [7:0]CPHT_GPHT_index_prf,
+    input logic [7:0]BPHT_index_prf,
+    input logic GPHT_pre_taken_prf,
+    input logic BPHT_pre_taken_prf,
+    input logic is_return_prf,
+    input logic [63:0]pre_adr_prf,
+    input logic [63:0]dec_adr_prf,
+    input logic [63:0]pc_prf,
+    input logic btb_hit_prf,
+    input logic [4:0]RAS_count_prf,
+    input logic pre_taken_prf,
+    
+    //来自于PRF的
+    input logic [63:0]rs1_value_prf,
+    input logic [63:0]rs2_value_prf,
+
+    //输出阶段
+    output logic [6:0]rob_id_ex,
+    output logic [4:0]bob_id_ex,
+    output logic [2:0]bru_control_ex,
+    output logic reg_write_ex,
+    output logic [1:0]instr_type_ex,
+    output logic instr_valid_ex,
+    
+    //来自于BOB
+    output logic [7:0]GHR_value_ex,
+    output logic [7:0]CPHT_GPHT_index_ex,
+    output logic [7:0]BPHT_index_ex,
+    output logic GPHT_pre_taken_ex,
+    output logic BPHT_pre_taken_ex,
+    output logic is_return_ex,
+    output logic [63:0]pre_adr_ex,
+    output logic [63:0]dec_adr_ex,
+    output logic [63:0]pc_ex,
+    output logic btb_hit_ex,
+    output logic [4:0]RAS_count_ex,
+    output logic pre_taken_ex,
+
+    
+    //来自于物理寄存器组
+    output logic [63:0]rs1_value_ex,
+    output logic [63:0]rs2_value_ex,
+    output logic [5:0]rs1_number_ex,
+    output logic [5:0]rs2_number_ex,
+    output logic [5:0]rd_number_ex
+
+);
+
+    //流水线寄存器：prf -> ex
+    always_ff @(posedge clk) begin
+        if (reset|bru_recovery) begin
+            rob_id_ex <= 7'd0;
+            bob_id_ex <= 5'd0;
+            bru_control_ex <= 3'd0;
+            reg_write_ex <= 1'd0;
+            instr_type_ex <= 2'd0;
+            instr_valid_ex <= 1'd0;
+            GHR_value_ex <= 8'd0;
+            CPHT_GPHT_index_ex <= 8'd0;
+            BPHT_index_ex <= 8'd0;
+            GPHT_pre_taken_ex <= 1'd0;      // 注意：这里是1位，不是8'd0
+            BPHT_pre_taken_ex <= 1'd0;      // 注意：这里是1位，不是8'd0
+            is_return_ex <= 1'd0;
+            pre_adr_ex <= 64'd0;
+            dec_adr_ex <= 64'd0;
+            pc_ex <= 64'd0;
+            btb_hit_ex <= 1'd0;
+            RAS_count_ex <= 5'd0;
+            rs1_value_ex <= 64'd0;
+            rs2_value_ex <= 64'd0;
+            pre_taken_ex <= 1'd0;
+        end   
+        else begin
+            rob_id_ex <= rob_id_prf;
+            bob_id_ex <= bob_id_prf;
+            bru_control_ex <= bru_control_prf;
+            reg_write_ex <= reg_write_prf;
+            instr_type_ex <= instr_type_prf;
+            instr_valid_ex <= instr_valid_prf;
+            GHR_value_ex <= GHR_value_prf;
+            CPHT_GPHT_index_ex <= CPHT_GPHT_index_prf;
+            BPHT_index_ex <= BPHT_index_prf;
+            GPHT_pre_taken_ex <= GPHT_pre_taken_prf;  // 改为分号
+            BPHT_pre_taken_ex <= BPHT_pre_taken_prf;  // 改为分号
+            is_return_ex <= is_return_prf;            // 改为分号
+            pre_adr_ex <= pre_adr_prf;                // 改为分号
+            dec_adr_ex <= dec_adr_prf;                // 改为分号
+            pc_ex <= pc_prf;                          // 改为分号
+            btb_hit_ex <= btb_hit_prf;                // 改为分号
+            RAS_count_ex <= RAS_count_prf;            // 改为分号
+            rs1_value_ex <= rs1_value_prf;            // 改为分号
+            rs2_value_ex <= rs2_value_prf;            // 改为分号
+            pre_taken_ex <= pre_taken_prf;            // 改为分号
+            rs1_number_ex <=rs1_number_prf;
+            rs2_number_ex <=rs2_number_prf;
+            rd_number_ex  <=rd_number_prf;
+        end  
+    end          
+endmodule

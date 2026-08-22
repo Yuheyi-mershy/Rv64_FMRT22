@@ -1,0 +1,54 @@
+module select_prf_mul(
+    input logic clk,
+    input logic reset,
+
+    input logic [5:0] rs1_number_select,
+    input logic [5:0] rs2_number_select,
+    input logic [5:0] rd_number_select,
+    input logic [6:0] rob_id_select,
+    input logic [3:0] mdu_control_select,
+    input logic reg_write_select,
+    input logic instr_valid_select,
+    input logic bru_recovery,
+    input logic [6:0] bru_rob_id,
+
+    output logic [5:0] rs1_number_prf,
+    output logic [5:0] rs2_number_prf,
+    output logic [5:0] rd_number_prf,
+    output logic [6:0] rob_id_prf,
+    output logic [3:0] mdu_control_prf,
+    output logic reg_write_prf,
+    output logic instr_valid_prf
+);
+    logic flush, stall;
+    
+    brurecovery bru_re(
+        .bru_recovery(bru_recovery),
+        .bru_rob_id(bru_rob_id),
+        .rob_id(rob_id_select),
+        .flush(flush),
+        .stall(stall)
+    );
+
+    always_ff @(posedge clk) begin
+        if(reset || flush || mdu_control_select[3]) begin
+            rs1_number_prf  <= 6'b000000;
+            rs2_number_prf  <= 6'b000000;
+            rd_number_prf   <= 6'b000000;
+            rob_id_prf      <= 7'b0000000;
+            reg_write_prf   <= 1'b0;
+            mdu_control_prf <= 4'b0000;
+            instr_valid_prf <= 1'b0;           
+        end
+        else if(~stall) begin
+            rs1_number_prf  <= rs1_number_select;
+            rs2_number_prf  <= rs2_number_select;
+            rd_number_prf   <= rd_number_select;
+            rob_id_prf      <= rob_id_select;
+            reg_write_prf   <= reg_write_select;
+            mdu_control_prf <= mdu_control_select;
+            instr_valid_prf <= instr_valid_select;    
+        end
+    end
+
+endmodule
